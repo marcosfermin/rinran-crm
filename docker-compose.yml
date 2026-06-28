@@ -1,0 +1,31 @@
+services:
+  backend:
+    build: ./backend
+    container_name: rinran-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: 4000
+      DB_PATH: /data/rinran.db
+    volumes:
+      - crm-data:/data
+    networks:
+      - rinran
+
+  frontend:
+    build: ./frontend
+    container_name: rinran-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - rinran
+
+volumes:
+  crm-data:
+
+networks:
+  rinran:
+    driver: bridge

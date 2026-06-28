@@ -22,98 +22,227 @@ CRM para gestionar contactos de WhatsApp captados desde campañas de Meta. Guard
 |-------------|---------------|
 | Docker | 24+ |
 | Docker Compose | v2+ |
-| Cuenta Meta Business | — |
-| Número WhatsApp Business API | — |
+| Cuenta de Facebook | — |
+| Número de teléfono libre (sin WhatsApp instalado) | — |
 
 > No necesitas Node.js ni nada más instalado localmente. Docker lo maneja todo.
 
 ---
 
-## Instalación rápida
+## Parte 1 — Configurar Meta y WhatsApp Business API
+
+Antes de levantar el CRM necesitas crear una App en Meta y registrar tu número. Sigue estos pasos en orden.
+
+### Paso 1 — Crear una cuenta de Meta Business Manager
+
+Si ya tienes una, salta al paso 2.
+
+1. Ve a **[business.facebook.com](https://business.facebook.com)**
+2. Clic en **Crear cuenta**
+3. Ingresa el nombre de tu negocio, tu nombre y tu correo
+4. Verifica tu correo cuando te llegue el email de confirmación
+
+---
+
+### Paso 2 — Crear la App en Meta for Developers
+
+1. Ve a **[developers.facebook.com](https://developers.facebook.com)**
+2. Inicia sesión con tu cuenta de Facebook
+3. Clic en **Mis Apps → Crear App**
+4. Selecciona el tipo: **Business**
+
+   > Si no ves la opción "Business", selecciona "Otro" y luego "Business".
+
+5. Completa el formulario:
+   - **Nombre de la app**: `Rinran CRM` (o el que prefieras)
+   - **Correo de contacto**: tu correo
+   - **Cuenta de Business Manager**: selecciona la que creaste en el Paso 1
+6. Clic en **Crear App** y confirma con tu contraseña de Facebook
+
+---
+
+### Paso 3 — Agregar WhatsApp a tu App
+
+1. Dentro del panel de tu app, ve al menú lateral y busca **Agregar productos**
+2. Encuentra **WhatsApp** y haz clic en **Configurar**
+3. Acepta las condiciones del servicio de WhatsApp Business
+
+---
+
+### Paso 4 — Registrar tu número de teléfono
+
+> El número que uses **no puede tener WhatsApp instalado** (ni personal ni Business). Si lo tiene, primero elimina la cuenta de WhatsApp de ese número.
+
+1. En el menú lateral, ve a **WhatsApp → Configuración de la API**
+2. Baja hasta la sección **Número de teléfono** y clic en **Agregar número de teléfono**
+3. Completa el perfil del negocio:
+   - Nombre del negocio
+   - Zona horaria
+   - Categoría
+4. Ingresa tu número de teléfono con código de país (ej: `+1 555 123 4567`)
+5. Elige verificación por **SMS** o **llamada de voz**
+6. Ingresa el código de 6 dígitos que recibes
+
+   > Meta también te da un **número de prueba gratuito** en esa misma pantalla. Puedes usarlo para probar sin registrar el tuyo, pero solo permite enviar mensajes a hasta 5 números verificados manualmente.
+
+---
+
+### Paso 5 — Obtener el Token de Acceso permanente
+
+El token temporal que aparece en el panel expira en 24 horas. Para producción necesitas uno permanente.
+
+1. Ve a **[business.facebook.com/settings](https://business.facebook.com/settings)**
+2. En el menú lateral: **Usuarios → Usuarios del sistema**
+3. Clic en **Agregar** → nombre: `rinran-bot`, rol: **Administrador**
+4. Una vez creado, clic en **Generar nuevo token**
+5. Selecciona tu app (`Rinran CRM`)
+6. Activa los permisos:
+   - `whatsapp_business_messaging` ✓
+   - `whatsapp_business_management` ✓
+7. Clic en **Generar token** y **cópialo ahora** — no lo verás de nuevo
+
+   Ese token va en `WA_ACCESS_TOKEN` de tu `.env`.
+
+---
+
+### Paso 6 — Copiar el ID del número de teléfono
+
+1. Ve a **WhatsApp → Configuración de la API** dentro de tu app
+2. En la sección **Número de teléfono**, verás tu número listado
+3. Debajo del número hay un campo **ID de número de teléfono** — cópialo
+
+   Ese valor va en `WA_PHONE_NUMBER_ID` de tu `.env`.
+
+---
+
+## Parte 2 — Instalar y levantar el CRM
+
+### Paso 7 — Clonar el repositorio
 
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/tu-usuario/rinran-crm.git
+git clone https://github.com/marcosfermin/rinran-crm.git
 cd rinran-crm
+```
 
-# 2. Crear el archivo de variables de entorno
+### Paso 8 — Configurar las variables de entorno
+
+```bash
 cp .env.example .env
 ```
 
-Edita `.env` con tus credenciales (ver sección [Variables de entorno](#variables-de-entorno)).
-
-```bash
-# 3. Construir y levantar
-docker compose up -d --build
-
-# 4. Abrir en el navegador
-open http://localhost:3000
-```
-
-Para detener:
-
-```bash
-docker compose down
-```
-
----
-
-## Variables de entorno
-
-Archivo: `.env` (copia de `.env.example`)
+Abre `.env` y completa con tus datos:
 
 ```env
-# Puerto local donde se accede al frontend
+# Puerto local donde se accede al CRM desde el navegador
 FRONTEND_PORT=3000
 
-# Token de acceso permanente de tu App de Meta
-WA_ACCESS_TOKEN=your_permanent_access_token_here
+# Token permanente del usuario de sistema (Paso 5)
+WA_ACCESS_TOKEN=EAAxxxxxxxxxxxxxx
 
-# ID del número de teléfono en WhatsApp Business
-WA_PHONE_NUMBER_ID=your_phone_number_id_here
+# ID del número de teléfono (Paso 6)
+WA_PHONE_NUMBER_ID=123456789012345
 
-# Token de verificación para el webhook (tú lo eliges)
-WA_VERIFY_TOKEN=rinran_secret_token_2026
+# Token de verificación del webhook — invéntalo tú, cualquier texto secreto
+WA_VERIFY_TOKEN=mi_token_secreto_2026
 
-# CORS (opcional, * permite todo)
+# CORS (déjalo en * para empezar)
 CORS_ORIGIN=*
 ```
 
-### Cómo obtener los valores de Meta
+### Paso 9 — Levantar con Docker
 
-1. Entra a [Meta for Developers](https://developers.facebook.com/) y abre tu app.
-2. Ve a **WhatsApp > Configuración de la API**.
-3. Copia el **Token de acceso** (genera uno permanente desde la página de tokens de sistema).
-4. Copia el **ID de número de teléfono** que aparece en esa misma pantalla.
-5. El `WA_VERIFY_TOKEN` lo defines tú — cualquier cadena secreta sirve. Lo vas a usar al registrar el webhook.
+```bash
+docker compose up -d --build
+```
+
+La primera vez tarda unos minutos mientras construye las imágenes. Cuando termine:
+
+```bash
+# Verificar que los contenedores están corriendo
+docker compose ps
+```
+
+Deberías ver `rinran-backend` y `rinran-frontend` con estado `Up`.
+
+Abre el CRM en tu navegador: **http://localhost:3000**
 
 ---
 
-## Configurar el webhook en Meta
+## Parte 3 — Conectar el webhook de Meta
 
-El webhook recibe los mensajes que te envían tus contactos de WhatsApp. Meta necesita una URL pública para enviarte esos eventos.
+El webhook es el canal por donde Meta te avisa cuando alguien te escribe. Necesita una URL pública con HTTPS.
 
-### Si estás en desarrollo local (con ngrok)
+### Opción A — Servidor en producción (recomendado)
+
+Si tienes un VPS con dominio, ve directo al [Despliegue en producción](#despliegue-en-producción) para configurar HTTPS, luego vuelve aquí.
+
+Tu URL de webhook será: `https://tudominio.com/webhook`
+
+### Opción B — Prueba local con ngrok
+
+Si quieres probar antes de tener servidor:
+
+1. Descarga ngrok desde **[ngrok.com/download](https://ngrok.com/download)**
+2. Crea una cuenta gratuita y copia tu authtoken
+3. Ejecuta:
 
 ```bash
-# Instalar ngrok: https://ngrok.com/download
+ngrok config add-authtoken TU_AUTHTOKEN
 ngrok http 3000
-# Copia la URL pública que aparece, ej: https://abc123.ngrok.io
 ```
 
-### Registrar el webhook
+4. ngrok te dará una URL pública como `https://abc123.ngrok-free.app` — úsala como tu dominio en los pasos siguientes
 
-1. En Meta for Developers, ve a **WhatsApp > Configuración**.
-2. En la sección **Webhook**, haz clic en **Editar**.
-3. Completa los campos:
+---
+
+### Paso 10 — Registrar el webhook en Meta
+
+1. Ve a tu app en **[developers.facebook.com](https://developers.facebook.com)**
+2. Menú lateral: **WhatsApp → Configuración**
+3. Baja hasta la sección **Webhook** y clic en **Editar**
+4. Completa los campos:
    - **URL de devolución de llamada**: `https://tudominio.com/webhook`
    - **Token de verificación**: el mismo valor que pusiste en `WA_VERIFY_TOKEN`
-4. Haz clic en **Verificar y guardar**.
-5. Activa la suscripción al evento **messages**.
+5. Clic en **Verificar y guardar**
 
-### Verificar que funciona
+   > Meta enviará un GET a tu URL para confirmar que responde. Si el CRM está corriendo, responderá automáticamente y verás el mensaje "Webhook verificado".
 
-Escríbete desde otro WhatsApp al número registrado. El contacto debe aparecer automáticamente en el CRM con su nombre y bandera del país.
+6. Una vez verificado, activa la suscripción:
+   - Busca el evento **messages** y activa el toggle ✓
+
+---
+
+### Paso 11 — Verificar que todo funciona
+
+Toma otro teléfono con WhatsApp y envía un mensaje a tu número registrado. En pocos segundos el contacto debe aparecer en el CRM con:
+
+- Su nombre (tomado del perfil de WhatsApp)
+- Su número con código de país
+- La bandera de su país
+- Fuente: `whatsapp`
+
+Si no aparece, revisa los logs:
+
+```bash
+docker compose logs -f backend
+```
+
+---
+
+## Parte 4 — Crear la campaña en Meta Ads
+
+### Paso 12 — Crear anuncio con CTA a WhatsApp
+
+1. Ve a **[adsmanager.facebook.com](https://adsmanager.facebook.com)**
+2. Clic en **Crear**
+3. Objetivo: **Interacción** → subcategoría **Mensajes**
+4. Plataforma de mensajería: **WhatsApp**
+5. Conecta la página de Facebook de tu negocio y el número de WhatsApp registrado
+6. Diseña tu anuncio (imagen/video + texto)
+7. En el CTA (llamada a la acción) selecciona **Enviar mensaje**
+8. El mensaje de bienvenida que aparece cuando el usuario abre WhatsApp puedes personalizarlo
+
+Cuando alguien haga clic en el anuncio y te escriba → el CRM lo captura automáticamente.
 
 ---
 
@@ -193,7 +322,7 @@ rinran-crm/
 
 ## API REST
 
-Base URL: `http://localhost:3000/api` (en producción, tu dominio)
+Base URL: `http://localhost:3000/api`
 
 ### Contactos
 
@@ -201,76 +330,32 @@ Base URL: `http://localhost:3000/api` (en producción, tu dominio)
 |--------|----------|-------------|
 | `GET` | `/contacts` | Lista paginada. Params: `search`, `category_id`, `status`, `page`, `limit` |
 | `GET` | `/contacts/:id` | Detalle + historial de mensajes |
-| `POST` | `/contacts` | Crear contacto. Body: `name`, `phone`, `category_id?`, `notes?`, `source?` |
-| `PATCH` | `/contacts/:id` | Actualizar campos. Body: `name?`, `category_id?`, `notes?`, `status?` |
+| `POST` | `/contacts` | Crear contacto. Body: `name`, `phone`, `category_id?`, `notes?` |
+| `PATCH` | `/contacts/:id` | Actualizar. Body: `name?`, `category_id?`, `notes?`, `status?` |
 | `DELETE` | `/contacts/:id` | Eliminar contacto y sus mensajes |
-
-**Ejemplo — crear contacto:**
-```bash
-curl -X POST http://localhost:3000/api/contacts \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Juan Pérez", "phone": "+5491122334455", "category_id": 1}'
-```
-
-**Respuesta:**
-```json
-{
-  "id": 1,
-  "name": "Juan Pérez",
-  "phone": "+5491122334455",
-  "country_code": "AR",
-  "country_flag": "🇦🇷",
-  "country_name": "Argentina",
-  "category_id": 1,
-  "status": "active",
-  "source": "manual",
-  "created_at": "2026-06-28 21:15:06"
-}
-```
 
 ### Categorías
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/categories` | Lista con conteo de contactos por categoría |
+| `GET` | `/categories` | Lista con conteo de contactos |
 | `POST` | `/categories` | Crear. Body: `name`, `color` (hex) |
 | `PATCH` | `/categories/:id` | Actualizar nombre o color |
-| `DELETE` | `/categories/:id` | Eliminar (contactos quedan sin categoría) |
+| `DELETE` | `/categories/:id` | Eliminar |
 
 ### Mensajes
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `POST` | `/messages/send` | Enviar mensaje individual. Body: `contact_id`, `message` |
+| `POST` | `/messages/send` | Envío individual. Body: `contact_id`, `message` |
 | `POST` | `/messages/broadcast` | Envío masivo. Body: `name?`, `message`, `category_id?` |
 | `GET` | `/messages/broadcasts` | Historial de broadcasts |
 
-**Ejemplo — broadcast a una categoría:**
-```bash
-curl -X POST http://localhost:3000/api/messages/broadcast \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Promo Julio",
-    "message": "Hola! Tenemos una oferta especial para ti 🎉",
-    "category_id": 1
-  }'
-```
-
-**Respuesta inmediata** (el envío continúa en background):
-```json
-{ "broadcast_id": 1, "total": 42 }
-```
-
-### Estadísticas
+### Estadísticas y Webhook
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/stats` | Totales, nuevos hoy, mensajes, distribución por país y categoría |
-
-### Webhook
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
+| `GET` | `/stats` | Totales, distribución por país y categoría |
 | `GET` | `/webhook` | Verificación del webhook por Meta |
 | `POST` | `/webhook` | Recepción de mensajes entrantes |
 
@@ -278,45 +363,23 @@ curl -X POST http://localhost:3000/api/messages/broadcast \
 
 ## Base de datos
 
-SQLite con WAL mode. Archivo en el volumen Docker `crm-data` (`/data/rinran.db`).
+SQLite con WAL mode. Archivo persistido en el volumen Docker `crm-data` (`/data/rinran.db`).
 
-### Tablas
+| Tabla | Descripción |
+|-------|-------------|
+| `categories` | Etiquetas con nombre y color |
+| `contacts` | Contactos con teléfono, país, categoría y fuente |
+| `messages` | Historial de mensajes entrantes y salientes |
+| `broadcasts` | Registro de envíos masivos con contadores |
 
-#### `categories`
-```sql
-id, name (UNIQUE), color, created_at
-```
-
-#### `contacts`
-```sql
-id, name, phone (UNIQUE), country_code, country_flag, country_name,
-category_id (FK → categories), notes, status, source, created_at, updated_at
-```
-- `status`: `active` | `inactive`
-- `source`: `manual` | `whatsapp`
-
-#### `messages`
-```sql
-id, contact_id (FK → contacts), direction, content,
-wa_message_id, status, sent_at
-```
-- `direction`: `inbound` | `outbound`
-
-#### `broadcasts`
-```sql
-id, name, message, category_id (FK → categories),
-total_recipients, sent_count, failed_count, status, created_at, sent_at
-```
-- `status`: `draft` | `sending` | `completed`
-
-### Categorías por defecto (seed)
+### Categorías creadas automáticamente al iniciar
 
 | Nombre | Color |
 |--------|-------|
-| Lead | `#f59e0b` 🟡 |
-| Cliente | `#10b981` 🟢 |
-| VIP | `#8b5cf6` 🟣 |
-| Inactivo | `#6b7280` ⚫ |
+| Lead | Amarillo `#f59e0b` |
+| Cliente | Verde `#10b981` |
+| VIP | Violeta `#8b5cf6` |
+| Inactivo | Gris `#6b7280` |
 
 ---
 
@@ -325,27 +388,27 @@ total_recipients, sent_count, failed_count, status, created_at, sent_at
 ```
 [Anuncio en Meta/Instagram]
           │
-          │ Usuario hace clic en "Enviar mensaje"
+          │  Usuario hace clic en "Enviar mensaje"
           ▼
 [WhatsApp del usuario → Tu número Business]
           │
-          │ Meta envía el evento a tu webhook
+          │  Meta envía el evento al webhook del CRM
           ▼
 [POST /webhook]
           │
-          ├─ ¿El teléfono ya existe? → agrega el mensaje al historial
+          ├─ ¿El teléfono ya existe? → agrega mensaje al historial
           │
           └─ ¿Es nuevo? → crea contacto automáticamente
-                           (nombre del perfil de WA, bandera por código de área, source = "whatsapp")
+                          (nombre del perfil WA + bandera por código de área)
           │
           ▼
 [Contacto visible en el CRM]
           │
-          ├─ Lo categorías (Lead, Cliente, etc.)
+          ├─ Lo categorizas (Lead, Cliente, VIP...)
           │
-          └─ Le envías mensajes desde el CRM:
-               - Individual: vista de chat
-               - Masivo: Broadcast → seleccionas categoría → envía a todos
+          └─ Le envías mensajes:
+               · Individual → vista de chat
+               · Masivo     → Broadcast por categoría
 ```
 
 ---
@@ -362,57 +425,104 @@ docker compose logs -f backend
 # Reiniciar un servicio sin rebuild
 docker compose restart backend
 
-# Rebuild y reiniciar (después de cambios en código)
+# Rebuild completo después de cambios en el código
 docker compose up -d --build
 
 # Entrar al contenedor del backend
 docker compose exec backend sh
 
-# Hacer backup de la base de datos
+# Backup de la base de datos
 docker compose exec backend sh -c "cp /data/rinran.db /data/backup_$(date +%Y%m%d).db"
 
-# Ver el contenido de la base de datos directamente
-docker compose exec backend node --experimental-sqlite -e "
-  const { DatabaseSync } = require('node:sqlite');
-  const db = new DatabaseSync('/data/rinran.db');
-  console.log(db.prepare('SELECT * FROM contacts LIMIT 10').all());
-"
+# Detener todo
+docker compose down
 ```
 
 ---
 
 ## Despliegue en producción
 
-### Con dominio propio (VPS)
+### Requisitos del servidor
+- VPS con Ubuntu 22.04+ (o cualquier Linux)
+- Docker + Docker Compose instalados
+- Dominio apuntando al IP del servidor
 
-1. Apunta tu dominio al IP del servidor.
-2. Instala Nginx + Certbot en el host para el SSL:
+### Instalar Docker en Ubuntu
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### Clonar y configurar
+
+```bash
+git clone https://github.com/marcosfermin/rinran-crm.git
+cd rinran-crm
+cp .env.example .env
+nano .env   # completar con tus credenciales
+docker compose up -d --build
+```
+
+### Configurar HTTPS con Nginx + Certbot
+
+```bash
+# Instalar Nginx y Certbot
+sudo apt install -y nginx certbot python3-certbot-nginx
+
+# Crear configuración de Nginx
+sudo nano /etc/nginx/sites-available/rinran
+```
+
+Contenido del archivo:
 
 ```nginx
 server {
-    listen 443 ssl;
+    listen 80;
     server_name tudominio.com;
-
-    ssl_certificate /etc/letsencrypt/live/tudominio.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/tudominio.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
-3. Cambia `FRONTEND_PORT=3000` en tu `.env` si el host ya usa ese puerto.
+```bash
+# Activar el sitio
+sudo ln -s /etc/nginx/sites-available/rinran /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 
-### Importante para el webhook
+# Generar certificado SSL (reemplaza tudominio.com con el tuyo)
+sudo certbot --nginx -d tudominio.com
 
-Meta requiere HTTPS con certificado válido para el webhook. La URL que registras en Meta debe ser la URL pública con SSL, ej:
-
+# Certbot edita la config automáticamente para HTTPS
+sudo systemctl reload nginx
 ```
-https://tudominio.com/webhook
-```
+
+Tu CRM estará disponible en `https://tudominio.com` y el webhook en `https://tudominio.com/webhook`.
+
+---
+
+## Checklist completo antes de recibir leads
+
+- [ ] Cuenta de Meta Business Manager creada
+- [ ] App de Meta tipo Business creada
+- [ ] WhatsApp agregado como producto en la app
+- [ ] Número de teléfono registrado y verificado
+- [ ] Token de acceso permanente generado (usuario de sistema)
+- [ ] `.env` completado con `WA_ACCESS_TOKEN` y `WA_PHONE_NUMBER_ID`
+- [ ] CRM corriendo: `docker compose up -d --build`
+- [ ] Dominio con HTTPS apuntando al servidor
+- [ ] Webhook registrado en Meta y verificado
+- [ ] Evento `messages` suscrito en el webhook
+- [ ] Prueba: enviar un mensaje desde otro WhatsApp y verificar que aparece en el CRM
+- [ ] Campaña de Meta Ads creada con CTA a WhatsApp
 
 ---
 

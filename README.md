@@ -1,18 +1,40 @@
 # Rinran CRM
 
-CRM para gestionar contactos de WhatsApp captados desde campañas de Meta. Guarda automáticamente a quienes te escriben, detecta su país por el código de área, los categoriza y permite enviarles mensajes individuales o masivos desde una interfaz web.
+CRM para gestionar contactos de WhatsApp. Funciona como tu bandeja de entrada: cualquier persona que te escriba directamente o llegue por una campaña de Meta aparece automáticamente, con su nombre, bandera de país y historial de conversación. Desde el CRM respondés individualmente o enviás mensajes masivos a toda tu base.
+
+Está diseñado para usarse desde el teléfono — podés instalarlo en la pantalla de inicio como si fuera una app.
 
 ---
 
 ## Características
 
-- **Captura automática** — Cuando alguien te escribe desde tu campaña de Meta (botón CTA a WhatsApp), el contacto se crea solo con su nombre y teléfono.
+- **Bandeja unificada** — Todos los mensajes entrantes (directos y de campañas) en una sola pantalla, ordenados por el más reciente, con badge de no leídos.
+- **Captura automática** — Cuando alguien te escribe, el contacto se crea solo con su nombre y teléfono. No hay que hacer nada manual.
 - **Bandera de país** — Detecta el país de cada contacto por su código de área (`+52` → 🇲🇽, `+54` → 🇦🇷, `+55` → 🇧🇷, etc.).
-- **Categorías con colores** — Clasifica contactos en Lead, Cliente, VIP, Inactivo o las que crees.
-- **Mensajería individual** — Vista de chat por contacto con historial completo de conversación.
-- **Broadcast masivo** — Envía un mensaje a toda una categoría o a todos tus contactos activos.
-- **Dashboard** — Estadísticas en tiempo real: contactos por país, por categoría, mensajes enviados.
+- **Chat individual** — Vista de conversación por contacto, con historial completo. Los mensajes nuevos aparecen solos cada 6 segundos.
+- **Broadcast masivo** — Enviá un mensaje a toda una categoría o a todos tus contactos activos de una sola vez.
+- **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos.
+- **Dashboard** — Estadísticas en tiempo real: contactos por país, por categoría, mensajes enviados y recibidos.
+- **Móvil primero** — Navegación por abajo en el teléfono, pantalla completa, instalable como app.
 - **Todo en Docker** — Un solo comando levanta backend + frontend + base de datos.
+
+---
+
+## Cómo reemplaza a WhatsApp Business
+
+Al migrar tu número a la Cloud API de Meta, el CRM se convierte en tu nueva bandeja de WhatsApp:
+
+```
+Antes:  [WhatsApp Business app en el teléfono]
+                      ↓
+Después: [Rinran CRM — desde el navegador del teléfono o escritorio]
+```
+
+- Quien te escribe directamente → aparece en la Bandeja del CRM
+- Quien llega por campaña → aparece en la misma Bandeja
+- Respondés desde el CRM, igual que lo hacías en la app
+- Podés instalar el CRM en la pantalla de inicio del teléfono (ver [Instalar en el teléfono](#instalar-en-el-teléfono))
+- Ganás envío masivo a toda tu base — algo que WhatsApp Business app no permite
 
 ---
 
@@ -23,7 +45,7 @@ CRM para gestionar contactos de WhatsApp captados desde campañas de Meta. Guard
 | Docker | 24+ |
 | Docker Compose | v2+ |
 | Cuenta de Facebook | — |
-| Número de teléfono libre (sin WhatsApp instalado) | — |
+| Número de teléfono (ver opciones en Paso 4) | — |
 
 > No necesitas Node.js ni nada más instalado localmente. Docker lo maneja todo.
 
@@ -272,6 +294,40 @@ docker compose logs -f backend
 
 ---
 
+## Instalar en el teléfono
+
+El CRM funciona desde el navegador del teléfono y se puede guardar en la pantalla de inicio como una app. Una vez instalado, abre en pantalla completa sin barra de navegación del browser — igual que una app nativa.
+
+> Requiere que el CRM esté desplegado con HTTPS. No funciona desde `localhost`.
+
+### iPhone — Safari
+
+1. Abre el CRM en **Safari** (debe ser Safari, no Chrome ni otro browser)
+2. Tocá el botón de compartir — el ícono de caja con flecha hacia arriba, en la barra inferior
+3. Bajá en el menú hasta **"Agregar a pantalla de inicio"**
+4. Ponle el nombre que quieras (ej: `Rinran CRM`) y tocá **Agregar**
+
+El ícono aparece en tu pantalla de inicio. Al tocarlo abre el CRM en pantalla completa.
+
+### Android — Chrome
+
+1. Abre el CRM en **Chrome**
+2. Tocá los tres puntos `⋮` en la esquina superior derecha
+3. Tocá **"Agregar a pantalla de inicio"** o **"Instalar app"**
+4. Confirmá con **Agregar**
+
+> En Android, Chrome a veces muestra automáticamente un banner en la parte inferior con el botón **"Instalar"** — podés usarlo directamente sin entrar al menú.
+
+### Resultado
+
+Desde la pantalla de inicio podés:
+- Ver la Bandeja con todos los mensajes nuevos de un vistazo
+- Responder conversaciones individuales
+- Enviar broadcasts
+- Todo sin abrir el navegador manualmente
+
+---
+
 ## Parte 4 — Crear la campaña en Meta Ads
 
 ### Paso 12 — Crear anuncio con CTA a WhatsApp
@@ -301,23 +357,25 @@ rinran-crm/
 │   │   └── routes/
 │   │       ├── contacts.js     CRUD de contactos
 │   │       ├── categories.js   CRUD de categorías
-│   │       ├── messages.js     Envío individual y broadcast
+│   │       ├── messages.js     Envío individual y broadcast masivo
+│   │       ├── inbox.js        Bandeja de conversaciones con no leídos
 │   │       ├── stats.js        Estadísticas del dashboard
-│   │       └── webhook.js      Receptor de mensajes de Meta
+│   │       └── webhook.js      Receptor de mensajes entrantes de Meta
 │   ├── Dockerfile
 │   └── package.json
 │
-├── frontend/                   Interfaz React
+├── frontend/                   Interfaz React (mobile-first)
 │   ├── src/
 │   │   ├── main.jsx            Punto de entrada React
-│   │   ├── App.jsx             Router + sidebar
+│   │   ├── App.jsx             Router + sidebar desktop + nav móvil
 │   │   ├── index.css           Tailwind base
 │   │   ├── hooks/
 │   │   │   └── useApi.js       Cliente HTTP genérico
 │   │   └── pages/
+│   │       ├── Inbox.jsx       Bandeja de conversaciones (pantalla principal)
 │   │       ├── Dashboard.jsx   Estadísticas y gráficos
-│   │       ├── Contacts.jsx    Lista con filtros y búsqueda
-│   │       ├── ContactDetail.jsx  Chat individual + edición
+│   │       ├── Contacts.jsx    Lista/tarjetas de contactos
+│   │       ├── ContactDetail.jsx  Chat individual con polling automático
 │   │       ├── Broadcast.jsx   Envío masivo + historial
 │   │       └── Categories.jsx  Gestión de categorías
 │   ├── Dockerfile              Build multi-stage (Vite → Nginx)
@@ -394,6 +452,13 @@ Base URL: `http://localhost:3000/api`
 | `POST` | `/messages/broadcast` | Envío masivo. Body: `name?`, `message`, `category_id?` |
 | `GET` | `/messages/broadcasts` | Historial de broadcasts |
 
+### Bandeja (Inbox)
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/inbox` | Conversaciones ordenadas por último mensaje, con conteo de no leídos. Param: `search` |
+| `PATCH` | `/inbox/:id/read` | Marca todos los mensajes entrantes de un contacto como leídos |
+
 ### Estadísticas y Webhook
 
 | Método | Endpoint | Descripción |
@@ -426,32 +491,35 @@ SQLite con WAL mode. Archivo persistido en el volumen Docker `crm-data` (`/data/
 
 ---
 
-## Flujo completo de una campaña
+## Flujo completo de mensajes
 
 ```
-[Anuncio en Meta/Instagram]
-          │
-          │  Usuario hace clic en "Enviar mensaje"
-          ▼
-[WhatsApp del usuario → Tu número Business]
-          │
-          │  Meta envía el evento al webhook del CRM
-          ▼
-[POST /webhook]
-          │
-          ├─ ¿El teléfono ya existe? → agrega mensaje al historial
-          │
-          └─ ¿Es nuevo? → crea contacto automáticamente
-                          (nombre del perfil WA + bandera por código de área)
-          │
-          ▼
-[Contacto visible en el CRM]
-          │
-          ├─ Lo categorizas (Lead, Cliente, VIP...)
-          │
-          └─ Le envías mensajes:
-               · Individual → vista de chat
-               · Masivo     → Broadcast por categoría
+  Alguien te escribe directamente       Alguien llega por campaña de Meta
+            │                                        │
+            │                                        │ clic en anuncio → "Enviar mensaje"
+            └──────────────────┬─────────────────────┘
+                               │
+                               │  Meta envía el evento al webhook del CRM
+                               ▼
+                        [POST /webhook]
+                               │
+                  ┌────────────┴────────────┐
+                  │                         │
+           contacto nuevo            contacto existente
+                  │                         │
+         se crea automáticamente    se agrega el mensaje
+         (nombre WA + bandera)       al historial
+                  │                         │
+                  └────────────┬────────────┘
+                               │
+                               ▼
+                    [Bandeja del CRM — /inbox]
+                    Aparece con badge de no leído
+                               │
+                  ┌────────────┴────────────┐
+                  │                         │
+         Respondés individualmente    O enviás un broadcast
+         desde el chat del contacto   a toda una categoría
 ```
 
 ---
@@ -554,18 +622,30 @@ Tu CRM estará disponible en `https://tudominio.com` y el webhook en `https://tu
 
 ## Checklist completo antes de recibir leads
 
+**Meta y WhatsApp**
 - [ ] Cuenta de Meta Business Manager creada
 - [ ] App de Meta tipo Business creada
 - [ ] WhatsApp agregado como producto en la app
-- [ ] Número de teléfono registrado y verificado
+- [ ] Número de teléfono registrado y verificado (o migrado desde WhatsApp Business)
 - [ ] Token de acceso permanente generado (usuario de sistema)
+
+**Configuración del CRM**
 - [ ] `.env` completado con `WA_ACCESS_TOKEN` y `WA_PHONE_NUMBER_ID`
 - [ ] CRM corriendo: `docker compose up -d --build`
 - [ ] Dominio con HTTPS apuntando al servidor
-- [ ] Webhook registrado en Meta y verificado
-- [ ] Evento `messages` suscrito en el webhook
-- [ ] Prueba: enviar un mensaje desde otro WhatsApp y verificar que aparece en el CRM
-- [ ] Campaña de Meta Ads creada con CTA a WhatsApp
+
+**Webhook**
+- [ ] Webhook registrado en Meta con la URL pública
+- [ ] Evento `messages` suscrito
+- [ ] Prueba: enviar un mensaje desde otro WhatsApp → aparece en la Bandeja del CRM
+
+**Teléfono**
+- [ ] Abrir el CRM desde Safari (iPhone) o Chrome (Android)
+- [ ] Agregar a pantalla de inicio
+- [ ] Verificar que abre en pantalla completa sin barra del browser
+
+**Campaña**
+- [ ] Campaña de Meta Ads creada con objetivo Mensajes y CTA a WhatsApp
 
 ---
 

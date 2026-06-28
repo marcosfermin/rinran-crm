@@ -71,19 +71,62 @@ Si ya tienes una, salta al paso 2.
 
 ### Paso 4 — Registrar tu número de teléfono
 
-> El número que uses **no puede tener WhatsApp instalado** (ni personal ni Business). Si lo tiene, primero elimina la cuenta de WhatsApp de ese número.
+> **Regla de Meta:** Un número no puede estar activo en la app de WhatsApp (personal o Business) y en la Cloud API al mismo tiempo. Son canales excluyentes.
+
+Tienes tres caminos según tu situación:
+
+---
+
+#### Opción A — Migrar tu número de WhatsApp Business a la Cloud API
+
+Esta es la ruta si ya tienes un número con WhatsApp Business app y quieres usarlo en el CRM.
+
+**Qué pasa al migrar:**
+- El número **deja de funcionar en la app** WhatsApp Business del teléfono
+- Los mensajes futuros los gestionas desde el CRM (Rinran)
+- Puedes hacer backup del historial de chats antes de migrar (en la app: Ajustes → Chats → Copia de seguridad)
+
+**Cómo migrar:**
+
+1. Abre WhatsApp Business en tu teléfono
+2. Ve a **Ajustes → Chats → Copia de seguridad de chats** y haz el backup
+3. Luego ve a **Ajustes → Cuenta → Eliminar mi cuenta**
+4. Selecciona tu número, confirma la eliminación y espera 5 minutos
+5. Ahora el número está libre — regístralo en Meta (sigue los puntos 1–5 de abajo)
+
+> Una vez en la Cloud API, todos los mensajes entran al CRM. Ya no los verás en ninguna app del teléfono.
+
+---
+
+#### Opción B — Número nuevo dedicado
+
+Consigue un número exclusivo para el negocio. Es la opción más limpia porque no interrumpe tu operación actual mientras haces la transición.
+
+- **SIM prepago**: cualquier operador local, costo mínimo
+- **Número VoIP**: Google Voice, Twilio, OpenPhone o Vonage — recibes SMS sin teléfono físico
+
+---
+
+#### Opción C — Número de prueba gratuito de Meta (solo para testear)
+
+Meta te da un número de prueba dentro del panel sin configuración. Sirve para verificar que el CRM funciona antes de migrar tu número real.
+
+**Limitación:** máximo 5 destinatarios verificados manualmente. No apto para producción.
+
+En **WhatsApp → Configuración de la API** verás el número de prueba ya disponible — copia su `Phone Number ID` para el `.env`.
+
+---
+
+#### Registrar el número en Meta (Opciones A o B)
 
 1. En el menú lateral, ve a **WhatsApp → Configuración de la API**
-2. Baja hasta la sección **Número de teléfono** y clic en **Agregar número de teléfono**
+2. Baja hasta **Número de teléfono** y clic en **Agregar número de teléfono**
 3. Completa el perfil del negocio:
    - Nombre del negocio
    - Zona horaria
    - Categoría
-4. Ingresa tu número de teléfono con código de país (ej: `+1 555 123 4567`)
-5. Elige verificación por **SMS** o **llamada de voz**
-6. Ingresa el código de 6 dígitos que recibes
-
-   > Meta también te da un **número de prueba gratuito** en esa misma pantalla. Puedes usarlo para probar sin registrar el tuyo, pero solo permite enviar mensajes a hasta 5 números verificados manualmente.
+4. Ingresa el número con código de país (ej: `+1 555 123 4567`)
+5. Elige verificación por **SMS** o **llamada de voz** e ingresa el código de 6 dígitos
 
 ---
 

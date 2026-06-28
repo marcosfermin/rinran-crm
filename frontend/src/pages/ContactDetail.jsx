@@ -1,18 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown } from 'lucide-react';
 
 function MessageBubble({ msg }) {
   const isOut = msg.direction === 'outbound';
+  const time = new Date(msg.sent_at.replace(' ', 'T') + 'Z')
+    .toLocaleString('es', { hour: '2-digit', minute: '2-digit' });
   return (
     <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-xs px-3 py-2 rounded-xl text-sm ${
-        isOut ? 'bg-green-600 text-white rounded-br-sm' : 'bg-gray-700 text-gray-100 rounded-bl-sm'
+      <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
+        isOut
+          ? 'bg-green-600 text-white rounded-br-sm'
+          : 'bg-gray-800 text-gray-100 rounded-bl-sm'
       }`}>
-        <p>{msg.content}</p>
-        <p className={`text-xs mt-1 ${isOut ? 'text-green-200' : 'text-gray-400'}`}>
-          {new Date(msg.sent_at).toLocaleString('es', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })}
-          {isOut && ` · ${msg.status}`}
+        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        <p className={`text-[11px] mt-1 text-right ${isOut ? 'text-green-200' : 'text-gray-500'}`}>
+          {time}{isOut && msg.status === 'failed' ? ' · ✗' : isOut ? ' ✓' : ''}
         </p>
       </div>
     </div>
@@ -28,6 +31,9 @@ export default function ContactDetail() {
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [showInfo, setShowInfo] = useState(false);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   function load() {
     fetch(`/api/contacts/${id}`).then(r => r.json()).then(d => {
@@ -39,20 +45,37 @@ export default function ContactDetail() {
   useEffect(() => {
     load();
     fetch('/api/categories').then(r => r.json()).then(setCategories);
+    // Mark as read
+    fetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
   }, [id]);
+
+  // Poll for new messages every 6 seconds
+  useEffect(() => {
+    const t = setInterval(() => {
+      fetch(`/api/contacts/${id}`).then(r => r.json()).then(d => setData(d));
+      fetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
+    }, 6000);
+    return () => clearInterval(t);
+  }, [id]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [data?.messages?.length]);
 
   async function sendMsg(e) {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || sending) return;
+    const text = message.trim();
+    setMessage('');
     setSending(true);
     await fetch('/api/messages/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact_id: parseInt(id), message }),
+      body: JSON.stringify({ contact_id: parseInt(id), message: text }),
     });
-    setMessage('');
     setSending(false);
     load();
+    inputRef.current?.focus();
   }
 
   async function saveEdit() {
@@ -65,105 +88,166 @@ export default function ContactDetail() {
     load();
   }
 
-  if (!data) return <div className="p-6 text-gray-500">Cargando...</div>;
+  if (!data) return (
+    <div className="flex items-center justify-center h-full text-gray-600">
+      <div className="animate-pulse">Cargando...</div>
+    </div>
+  );
 
   const cat = categories.find(c => c.id === data.category_id);
+  const messages = [...(data.messages || [])].reverse();
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-screen md:h-full">
       {/* Header */}
-      <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-4">
-        <button onClick={() => navigate('/contacts')} className="text-gray-400 hover:text-white">
-          <ArrowLeft size={18} />
+      <div className="bg-gray-900 border-b border-gray-800 px-3 py-3 flex items-center gap-3 shrink-0">
+        <button
+          onClick={() => navigate(-1)}
+          className="text-gray-400 hover:text-white p-1 -ml-1"
+        >
+          <ArrowLeft size={20} />
         </button>
-        <div className="text-3xl">{data.country_flag || '🏳️'}</div>
-        <div className="flex-1">
-          {editing ? (
-            <input
-              value={editForm.name}
-              onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-              className="bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-lg font-bold w-full focus:outline-none"
-            />
-          ) : (
-            <h2 className="text-lg font-bold text-white">{data.name}</h2>
-          )}
-          <p className="text-sm text-gray-400 font-mono">{data.phone} · {data.country_name}</p>
-        </div>
+
+        <button
+          onClick={() => setShowInfo(v => !v)}
+          className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+        >
+          <div className="text-2xl leading-none">{data.country_flag || '👤'}</div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white truncate">{data.name}</p>
+            <p className="text-xs text-gray-500 truncate">{data.phone}</p>
+          </div>
+          <ChevronDown
+            size={14}
+            className={`text-gray-500 shrink-0 transition-transform ${showInfo ? 'rotate-180' : ''}`}
+          />
+        </button>
+
         {editing ? (
-          <div className="flex gap-2">
-            <button onClick={saveEdit} className="p-2 text-green-400 hover:bg-green-400/10 rounded-lg"><Check size={16} /></button>
-            <button onClick={() => setEditing(false)} className="p-2 text-gray-400 hover:bg-gray-800 rounded-lg"><X size={16} /></button>
+          <div className="flex gap-1 shrink-0">
+            <button onClick={saveEdit} className="p-2 text-green-400 hover:bg-green-400/10 rounded-lg">
+              <Check size={16} />
+            </button>
+            <button onClick={() => setEditing(false)} className="p-2 text-gray-400 hover:bg-gray-800 rounded-lg">
+              <X size={16} />
+            </button>
           </div>
         ) : (
-          <button onClick={() => setEditing(true)} className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg">
+          <button
+            onClick={() => setEditing(true)}
+            className="p-2 text-gray-500 hover:text-white hover:bg-gray-800 rounded-lg shrink-0"
+          >
             <Edit2 size={16} />
           </button>
         )}
       </div>
 
-      {/* Info bar */}
-      <div className="bg-gray-900/50 border-b border-gray-800 px-6 py-2 flex items-center gap-4 text-sm">
-        <div>
-          <span className="text-gray-500">Categoría: </span>
+      {/* Collapsible info / edit panel */}
+      {showInfo && (
+        <div className="bg-gray-900/80 border-b border-gray-800 px-4 py-3 space-y-3 shrink-0">
           {editing ? (
-            <select
-              value={editForm.category_id}
-              onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-0.5 text-white text-xs ml-1 focus:outline-none"
-            >
-              <option value="">Sin categoría</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          ) : cat ? (
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium ml-1" style={{ backgroundColor: cat.color + '33', color: cat.color }}>
-              {cat.name}
-            </span>
-          ) : <span className="text-gray-600 ml-1">—</span>}
-        </div>
-        <div className="text-gray-500">
-          Fuente: <span className="text-gray-300">{data.source}</span>
-        </div>
-        <div className="text-gray-500">
-          Desde: <span className="text-gray-300">{new Date(data.created_at).toLocaleDateString('es')}</span>
-        </div>
-      </div>
-
-      {editing && (
-        <div className="px-6 py-3 border-b border-gray-800 bg-gray-900/30">
-          <label className="text-xs text-gray-400">Notas</label>
-          <textarea
-            value={editForm.notes}
-            onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-            rows={2}
-            className="w-full mt-1 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white focus:outline-none resize-none"
-          />
+            <>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Nombre</label>
+                <input
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Categoría</label>
+                <select
+                  value={editForm.category_id}
+                  onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
+                >
+                  <option value="">Sin categoría</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Notas</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500 resize-none"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap gap-3 text-sm">
+              <div>
+                <span className="text-gray-500 text-xs">País</span>
+                <p className="text-gray-200">{data.country_flag} {data.country_name}</p>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Categoría</span>
+                <p>
+                  {cat
+                    ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span>
+                    : <span className="text-gray-600">—</span>
+                  }
+                </p>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Fuente</span>
+                <p className="text-gray-200">{data.source}</p>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">Desde</span>
+                <p className="text-gray-200">{new Date(data.created_at).toLocaleDateString('es')}</p>
+              </div>
+              {data.notes && (
+                <div className="w-full">
+                  <span className="text-gray-500 text-xs">Notas</span>
+                  <p className="text-gray-300 text-sm mt-0.5">{data.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4 space-y-3">
-        {data.messages?.length === 0 && (
-          <div className="text-center text-gray-600 mt-10">Sin mensajes aún</div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-2 bg-gray-950">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-700">
+            <p className="text-sm">Sin mensajes aún</p>
+          </div>
         )}
-        {[...(data.messages || [])].reverse().map(msg => (
-          <MessageBubble key={msg.id} msg={msg} />
-        ))}
+        {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Send */}
-      <form onSubmit={sendMsg} className="bg-gray-900 border-t border-gray-800 px-6 py-4 flex gap-3">
-        <input
+      {/* Input */}
+      <form
+        onSubmit={sendMsg}
+        className="bg-gray-900 border-t border-gray-800 px-3 py-3 flex gap-2 items-end shrink-0"
+      >
+        <textarea
+          ref={inputRef}
           value={message}
           onChange={e => setMessage(e.target.value)}
-          placeholder="Escribir mensaje..."
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500"
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); }
+          }}
+          placeholder="Mensaje..."
+          rows={1}
+          className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500 resize-none max-h-32 leading-5"
+          style={{ minHeight: '42px' }}
+          onInput={e => {
+            e.target.style.height = 'auto';
+            e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
+          }}
         />
         <button
           type="submit"
           disabled={sending || !message.trim()}
-          className="bg-green-500 hover:bg-green-400 disabled:opacity-40 text-white px-4 py-2.5 rounded-lg transition-colors"
+          className="bg-green-500 hover:bg-green-400 active:bg-green-600 disabled:opacity-40 text-white p-2.5 rounded-full transition-colors shrink-0"
         >
-          <Send size={16} />
+          <Send size={18} />
         </button>
       </form>
     </div>

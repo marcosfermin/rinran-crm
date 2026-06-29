@@ -56,13 +56,13 @@ async function getStatus() {
   }
 }
 
-// Get contact info (best-effort — WAHA Core may not resolve all fields)
+// Get contact info
 async function getContact(contactId) {
   try {
     const session = await getSession();
     const sessionKey = session?.name || session?.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${sessionKey}/contacts/${encodeURIComponent(contactId)}`,
+      `${base()}/api/${sessionKey}/contacts/${encodeURIComponent(contactId)}`,
       { headers: headers(), timeout: 8000 }
     );
     return res.data;
@@ -71,15 +71,15 @@ async function getContact(contactId) {
   }
 }
 
-// Get all individual chats
+// Get all chats — WAHA Community: GET /api/{session}/chats
 async function getAllChats() {
   try {
     const session = await getSession();
     if (!session) return [];
     const sessionKey = session.name || session.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${sessionKey}/chats`,
-      { headers: headers(), timeout: 30000 }
+      `${base()}/api/${sessionKey}/chats`,
+      { headers: headers(), timeout: 30000, params: { limit: 1000 } }
     );
     return Array.isArray(res.data) ? res.data : [];
   } catch (e) {
@@ -88,14 +88,14 @@ async function getAllChats() {
   }
 }
 
-// Get messages for a chat — WAHA Plus persists history per chat
+// Get messages for a chat — WAHA Community: GET /api/{session}/chats/{chatId}/messages
 async function getChatMessages(chatId, limit = 500) {
   try {
     const session = await getSession();
     if (!session) return [];
     const sessionKey = session.name || session.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${sessionKey}/chats/${encodeURIComponent(chatId)}/messages`,
+      `${base()}/api/${sessionKey}/chats/${encodeURIComponent(chatId)}/messages`,
       { headers: headers(), timeout: 30000, params: { limit } }
     );
     const d = res.data;

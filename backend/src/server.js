@@ -20,6 +20,7 @@ app.use('/api/categories', require('./routes/categories'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/inbox', require('./routes/inbox'));
+app.use('/api/status', require('./routes/status'));
 app.use('/webhook', require('./routes/webhook'));
 
 app.get('/health', (_, res) => res.json({ status: 'ok', time: new Date().toISOString() }));

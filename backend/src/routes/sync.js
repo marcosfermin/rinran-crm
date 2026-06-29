@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, configureWebhook } = require('../whatsapp');
 
 const state = { running: false, lastSync: null, imported: { contacts: 0, messages: 0 }, error: null };
 
@@ -14,6 +14,8 @@ router.post('/', async (req, res) => {
   state.error = null;
   state.imported = { contacts: 0, messages: 0 };
   res.json({ ok: true, message: 'Sync started' });
+  const webhookUrl = process.env.WEBHOOK_URL || 'http://backend:4000/webhook';
+  configureWebhook(webhookUrl).catch(() => {});
   runSync().catch(e => {
     state.error = e.message;
     state.running = false;

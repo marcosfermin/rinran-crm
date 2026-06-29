@@ -110,4 +110,23 @@ async function getChatMessages(chatId, limit = 500) {
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages, getSession, resetSession };
+// Configure webhook for the active session (persists in WAHA store)
+async function configureWebhook(webhookUrl) {
+  try {
+    const session = await getSession();
+    if (!session) return false;
+    const sessionKey = session.name || session.id;
+    await axios.put(`${base()}/api/sessions/${sessionKey}`, {
+      config: {
+        webhooks: [{ url: webhookUrl, events: ['message'], enabled: true }],
+      }
+    }, { headers: headers(), timeout: 10000 });
+    console.log(`[waha] Webhook configured → ${webhookUrl}`);
+    return true;
+  } catch (e) {
+    console.error('[waha] configureWebhook error:', e.message);
+    return false;
+  }
+}
+
+module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };

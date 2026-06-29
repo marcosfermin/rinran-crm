@@ -5,7 +5,7 @@ const base = () => process.env.OPENWA_URL?.replace(/\/$/, '');
 function headers() {
   const key = process.env.OPENWA_API_KEY;
   const h = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (key) h['apikey'] = key;
+  if (key) h['X-Api-Key'] = key;
   return h;
 }
 

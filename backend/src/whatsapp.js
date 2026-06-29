@@ -37,21 +37,32 @@ async function getContact(contactId) {
 
 // Get all chats (non-group conversations)
 async function getAllChats() {
+  let raw;
   try {
-    const res = await axios.get(`${base()}/getAllChats`, {
-      headers: headers(), timeout: 30000
-    });
-    return res.data?.response ?? res.data ?? [];
+    const res = await axios.get(`${base()}/getAllChats`, { headers: headers(), timeout: 30000 });
+    raw = res.data;
   } catch {
     try {
-      const res = await axios.post(`${base()}/getAllChats`, {}, {
-        headers: headers(), timeout: 30000
-      });
-      return res.data?.response ?? res.data ?? [];
-    } catch {
+      const res = await axios.post(`${base()}/getAllChats`, {}, { headers: headers(), timeout: 30000 });
+      raw = res.data;
+    } catch (e) {
+      console.error('[openwa] getAllChats failed:', e.message);
       return [];
     }
   }
+
+  console.log('[openwa] getAllChats raw type:', typeof raw, Array.isArray(raw) ? 'array' : JSON.stringify(raw)?.slice(0, 300));
+
+  // Handle every known response shape
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.response)) return raw.response;
+  if (Array.isArray(raw?.data)) return raw.data;
+  if (Array.isArray(raw?.chats)) return raw.chats;
+  if (raw?.response && typeof raw.response === 'object' && !Array.isArray(raw.response)) {
+    const vals = Object.values(raw.response);
+    if (vals.length && Array.isArray(vals[0])) return vals[0];
+  }
+  return [];
 }
 
 // Get all messages for a chat

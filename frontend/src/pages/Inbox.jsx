@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, MessageSquare } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -22,9 +23,9 @@ export default function InboxPage() {
   const load = useCallback(() => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
-    fetch(`/api/inbox?${params}`)
-      .then(r => r.json())
-      .then(setConversations)
+    apiFetch(`/api/inbox?${params}`)
+      .then(r => r?.json())
+      .then(data => data && setConversations(data))
       .catch(() => {});
   }, [search]);
 

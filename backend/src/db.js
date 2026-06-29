@@ -1,4 +1,5 @@
 const { DatabaseSync } = require('node:sqlite');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 const fs = require('fs');
 
@@ -19,6 +20,14 @@ function getDb() {
 
 function initSchema() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Admin',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -69,12 +78,21 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_messages_contact ON messages(contact_id);
   `);
 
-  const existing = db.prepare('SELECT COUNT(*) as n FROM categories').get();
-  if (existing.n === 0) {
+  const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
+  if (existingCats.n === 0) {
     db.prepare("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)").run('Lead', '#f59e0b');
     db.prepare("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)").run('Cliente', '#10b981');
     db.prepare("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)").run('VIP', '#8b5cf6');
     db.prepare("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)").run('Inactivo', '#6b7280');
+  }
+
+  const existingUsers = db.prepare('SELECT COUNT(*) as n FROM users').get();
+  if (existingUsers.n === 0) {
+    const email = process.env.ADMIN_EMAIL || 'admin@rinran.com';
+    const password = process.env.ADMIN_PASSWORD || 'changeme123';
+    const hash = bcrypt.hashSync(password, 10);
+    db.prepare("INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)").run(email, hash, 'Admin');
+    console.log(`[db] Admin user created: ${email}`);
   }
 }
 

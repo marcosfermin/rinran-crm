@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send, Edit2, Check, X, ChevronDown } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 function MessageBubble({ msg }) {
   const isOut = msg.direction === 'outbound';
@@ -36,7 +37,8 @@ export default function ContactDetail() {
   const inputRef = useRef(null);
 
   function load() {
-    fetch(`/api/contacts/${id}`).then(r => r.json()).then(d => {
+    apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => {
+      if (!d) return;
       setData(d);
       setEditForm({ name: d.name, category_id: d.category_id || '', notes: d.notes || '' });
     });
@@ -44,16 +46,15 @@ export default function ContactDetail() {
 
   useEffect(() => {
     load();
-    fetch('/api/categories').then(r => r.json()).then(setCategories);
-    // Mark as read
-    fetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
+    apiFetch('/api/categories').then(r => r?.json()).then(data => data && setCategories(data));
+    apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
   }, [id]);
 
   // Poll for new messages every 6 seconds
   useEffect(() => {
     const t = setInterval(() => {
-      fetch(`/api/contacts/${id}`).then(r => r.json()).then(d => setData(d));
-      fetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
+      apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => d && setData(d));
+      apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
     }, 6000);
     return () => clearInterval(t);
   }, [id]);
@@ -68,7 +69,7 @@ export default function ContactDetail() {
     const text = message.trim();
     setMessage('');
     setSending(true);
-    await fetch('/api/messages/send', {
+    await apiFetch('/api/messages/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contact_id: parseInt(id), message: text }),
@@ -79,7 +80,7 @@ export default function ContactDetail() {
   }
 
   async function saveEdit() {
-    await fetch(`/api/contacts/${id}`, {
+    await apiFetch(`/api/contacts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editForm),

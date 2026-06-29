@@ -10,11 +10,23 @@ export function useApi() {
     setLoading(true);
     setError(null);
     try {
+      const token = localStorage.getItem('rinran_token');
+      const headers = {};
+      if (body) headers['Content-Type'] = 'application/json';
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
       const res = await fetch(`${BASE}${path}`, {
         method,
-        headers: body ? { 'Content-Type': 'application/json' } : {},
+        headers,
         body: body ? JSON.stringify(body) : undefined,
       });
+
+      if (res.status === 401) {
+        localStorage.removeItem('rinran_token');
+        window.location.reload();
+        return null;
+      }
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       return data;

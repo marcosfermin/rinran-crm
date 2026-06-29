@@ -1,6 +1,8 @@
 # Rinran CRM
 
-CRM para gestionar contactos de WhatsApp. Funciona como tu bandeja de entrada: cualquier persona que te escriba directamente o llegue por una campaña de Meta aparece automáticamente, con su nombre, bandera de país y historial de conversación. Desde el CRM respondés individualmente o enviás mensajes masivos a toda tu base.
+CRM para gestionar contactos de WhatsApp. Funciona como tu bandeja de entrada: cualquier persona que te escriba aparece automáticamente con su nombre, bandera de país e historial de conversación. Desde el CRM respondés individualmente o enviás mensajes masivos a toda tu base.
+
+Se conecta a tu WhatsApp a través de un servidor **OpenWA** — sin necesidad de Meta Business API, sin migrar tu número, sin aprobaciones. Funciona con el mismo número que ya usás.
 
 Está diseñado para usarse desde el teléfono — podés instalarlo en la pantalla de inicio como si fuera una app.
 
@@ -8,9 +10,9 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 
 ## Características
 
-- **Bandeja unificada** — Todos los mensajes entrantes (directos y de campañas) en una sola pantalla, ordenados por el más reciente, con badge de no leídos.
+- **Bandeja unificada** — Todos los mensajes entrantes en una sola pantalla, ordenados por el más reciente, con badge de no leídos.
 - **Captura automática** — Cuando alguien te escribe, el contacto se crea solo con su nombre y teléfono. No hay que hacer nada manual.
-- **Bandera de país** — Detecta el país de cada contacto por su código de área (`+52` → 🇲🇽, `+54` → 🇦🇷, `+55` → 🇧🇷, etc.).
+- **Bandera de país** — Detecta el país por código de área (`+52` → 🇲🇽, `+54` → 🇦🇷, `+55` → 🇧🇷, etc.).
 - **Chat individual** — Vista de conversación por contacto, con historial completo. Los mensajes nuevos aparecen solos cada 6 segundos.
 - **Broadcast masivo** — Enviá un mensaje a toda una categoría o a todos tus contactos activos de una sola vez.
 - **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos.
@@ -20,273 +22,218 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 
 ---
 
-## Cómo reemplaza a WhatsApp Business
+## Cómo funciona con OpenWA
 
-Al migrar tu número a la Cloud API de Meta, el CRM se convierte en tu nueva bandeja de WhatsApp:
+OpenWA es un servidor que conecta tu WhatsApp (personal o Business) a través de un QR code, igual que WhatsApp Web. El CRM se comunica con ese servidor para enviar y recibir mensajes.
 
 ```
-Antes:  [WhatsApp Business app en el teléfono]
-                      ↓
-Después: [Rinran CRM — desde el navegador del teléfono o escritorio]
+[Tu WhatsApp — número que ya usás]
+         │
+         │ QR scan (una sola vez)
+         ▼
+  [Servidor OpenWA]  ←──────────────────── envía mensajes
+         │                                  (desde el CRM)
+         │ webhook (cada mensaje entrante)
+         ▼
+   [Rinran CRM]
+         │
+         ▼
+  [Bandeja + Chats + Broadcasts]
 ```
 
-- Quien te escribe directamente → aparece en la Bandeja del CRM
-- Quien llega por campaña → aparece en la misma Bandeja
-- Respondés desde el CRM, igual que lo hacías en la app
-- Podés instalar el CRM en la pantalla de inicio del teléfono (ver [Instalar en el teléfono](#instalar-en-el-teléfono))
-- Ganás envío masivo a toda tu base — algo que WhatsApp Business app no permite
+**Ventajas sobre Meta Cloud API:**
+- No necesitás cuenta de Meta Business ni crear ninguna app
+- Usás tu número actual sin migrarlo ni eliminarlo
+- Sin restricciones de templates para enviar mensajes
+- Funciona con WhatsApp personal y WhatsApp Business
+
+**A tener en cuenta:**
+- El servidor OpenWA debe estar corriendo y conectado para que el CRM funcione
+- WhatsApp detecta el uso como cliente no oficial — riesgo bajo pero existente para uso normal de negocio
 
 ---
 
 ## Requisitos
 
-| Herramienta | Versión mínima |
-|-------------|---------------|
-| Docker | 24+ |
-| Docker Compose | v2+ |
-| Cuenta de Facebook | — |
-| Número de teléfono (ver opciones en Paso 4) | — |
+| Componente | Detalle |
+|------------|---------|
+| Docker + Docker Compose | Para correr el CRM |
+| Servidor OpenWA | Corriendo y conectado a tu WhatsApp via QR |
 
-> No necesitas Node.js ni nada más instalado localmente. Docker lo maneja todo.
+> No necesitás Node.js, Meta Business account, ni ninguna otra cosa. Solo Docker y tu servidor OpenWA.
 
 ---
 
-## Parte 1 — Configurar Meta y WhatsApp Business API
+## Parte 1 — Configurar el servidor OpenWA
 
-Antes de levantar el CRM necesitas crear una App en Meta y registrar tu número. Sigue estos pasos en orden.
+Si ya tenés el servidor OpenWA corriendo y conectado a tu WhatsApp, pasá directo al [Paso 2](#parte-2--instalar-y-levantar-el-crm).
 
-### Paso 1 — Crear una cuenta de Meta Business Manager
+### Paso 1 — Levantar OpenWA con Docker
 
-Si ya tienes una, salta al paso 2.
+La forma más rápida es correr OpenWA como contenedor Docker. Creá un archivo `docker-compose.openwa.yml` en una carpeta separada:
 
-1. Ve a **[business.facebook.com](https://business.facebook.com)**
-2. Clic en **Crear cuenta**
-3. Ingresa el nombre de tu negocio, tu nombre y tu correo
-4. Verifica tu correo cuando te llegue el email de confirmación
+```yaml
+services:
+  openwa:
+    image: openwa/wa-automate
+    container_name: openwa
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - openwa-session:/app/.wwebjs_auth
+    environment:
+      - PORT=8080
+      # Opcional: proteger el servidor con API key
+      - API_KEY=tu_api_key_secreta
 
----
+volumes:
+  openwa-session:
+```
 
-### Paso 2 — Crear la App en Meta for Developers
+```bash
+docker compose -f docker-compose.openwa.yml up -d
+```
 
-1. Ve a **[developers.facebook.com](https://developers.facebook.com)**
-2. Inicia sesión con tu cuenta de Facebook
-3. Clic en **Mis Apps → Crear App**
-4. Selecciona el tipo: **Business**
+### Paso 2 — Escanear el QR
 
-   > Si no ves la opción "Business", selecciona "Otro" y luego "Business".
+1. Abrí los logs del contenedor:
+   ```bash
+   docker logs -f openwa
+   ```
+2. Aparecerá un **código QR** en la terminal
+3. Abrí WhatsApp en tu teléfono → **Dispositivos vinculados → Vincular dispositivo**
+4. Escaneá el QR
+5. Cuando aparezca el mensaje `Client is ready!` en los logs, la conexión está establecida
 
-5. Completa el formulario:
-   - **Nombre de la app**: `Rinran CRM` (o el que prefieras)
-   - **Correo de contacto**: tu correo
-   - **Cuenta de Business Manager**: selecciona la que creaste en el Paso 1
-6. Clic en **Crear App** y confirma con tu contraseña de Facebook
+La sesión se guarda en el volumen `openwa-session` — no necesitás re-escanear a menos que cierres la sesión desde el teléfono.
 
----
+### Paso 3 — Verificar que OpenWA responde
 
-### Paso 3 — Agregar WhatsApp a tu App
+```bash
+curl http://localhost:8080/getConnectionState
+```
 
-1. Dentro del panel de tu app, ve al menú lateral y busca **Agregar productos**
-2. Encuentra **WhatsApp** y haz clic en **Configurar**
-3. Acepta las condiciones del servicio de WhatsApp Business
-
----
-
-### Paso 4 — Registrar tu número de teléfono
-
-> **Regla de Meta:** Un número no puede estar activo en la app de WhatsApp (personal o Business) y en la Cloud API al mismo tiempo. Son canales excluyentes.
-
-Tienes tres caminos según tu situación:
-
----
-
-#### Opción A — Migrar tu número de WhatsApp Business a la Cloud API
-
-Esta es la ruta si ya tienes un número con WhatsApp Business app y quieres usarlo en el CRM.
-
-**Qué pasa al migrar:**
-- El número **deja de funcionar en la app** WhatsApp Business del teléfono
-- Los mensajes futuros los gestionas desde el CRM (Rinran)
-- Puedes hacer backup del historial de chats antes de migrar (en la app: Ajustes → Chats → Copia de seguridad)
-
-**Cómo migrar:**
-
-1. Abre WhatsApp Business en tu teléfono
-2. Ve a **Ajustes → Chats → Copia de seguridad de chats** y haz el backup
-3. Luego ve a **Ajustes → Cuenta → Eliminar mi cuenta**
-4. Selecciona tu número, confirma la eliminación y espera 5 minutos
-5. Ahora el número está libre — regístralo en Meta (sigue los puntos 1–5 de abajo)
-
-> Una vez en la Cloud API, todos los mensajes entran al CRM. Ya no los verás en ninguna app del teléfono.
-
----
-
-#### Opción B — Número nuevo dedicado
-
-Consigue un número exclusivo para el negocio. Es la opción más limpia porque no interrumpe tu operación actual mientras haces la transición.
-
-- **SIM prepago**: cualquier operador local, costo mínimo
-- **Número VoIP**: Google Voice, Twilio, OpenPhone o Vonage — recibes SMS sin teléfono físico
-
----
-
-#### Opción C — Número de prueba gratuito de Meta (solo para testear)
-
-Meta te da un número de prueba dentro del panel sin configuración. Sirve para verificar que el CRM funciona antes de migrar tu número real.
-
-**Limitación:** máximo 5 destinatarios verificados manualmente. No apto para producción.
-
-En **WhatsApp → Configuración de la API** verás el número de prueba ya disponible — copia su `Phone Number ID` para el `.env`.
-
----
-
-#### Registrar el número en Meta (Opciones A o B)
-
-1. En el menú lateral, ve a **WhatsApp → Configuración de la API**
-2. Baja hasta **Número de teléfono** y clic en **Agregar número de teléfono**
-3. Completa el perfil del negocio:
-   - Nombre del negocio
-   - Zona horaria
-   - Categoría
-4. Ingresa el número con código de país (ej: `+1 555 123 4567`)
-5. Elige verificación por **SMS** o **llamada de voz** e ingresa el código de 6 dígitos
-
----
-
-### Paso 5 — Obtener el Token de Acceso permanente
-
-El token temporal que aparece en el panel expira en 24 horas. Para producción necesitas uno permanente.
-
-1. Ve a **[business.facebook.com/settings](https://business.facebook.com/settings)**
-2. En el menú lateral: **Usuarios → Usuarios del sistema**
-3. Clic en **Agregar** → nombre: `rinran-bot`, rol: **Administrador**
-4. Una vez creado, clic en **Generar nuevo token**
-5. Selecciona tu app (`Rinran CRM`)
-6. Activa los permisos:
-   - `whatsapp_business_messaging` ✓
-   - `whatsapp_business_management` ✓
-7. Clic en **Generar token** y **cópialo ahora** — no lo verás de nuevo
-
-   Ese token va en `WA_ACCESS_TOKEN` de tu `.env`.
-
----
-
-### Paso 6 — Copiar el ID del número de teléfono
-
-1. Ve a **WhatsApp → Configuración de la API** dentro de tu app
-2. En la sección **Número de teléfono**, verás tu número listado
-3. Debajo del número hay un campo **ID de número de teléfono** — cópialo
-
-   Ese valor va en `WA_PHONE_NUMBER_ID` de tu `.env`.
+Respuesta esperada:
+```json
+{ "response": "CONNECTED" }
+```
 
 ---
 
 ## Parte 2 — Instalar y levantar el CRM
 
-### Paso 7 — Clonar el repositorio
+### Paso 4 — Clonar el repositorio
 
 ```bash
 git clone https://github.com/marcosfermin/rinran-crm.git
 cd rinran-crm
 ```
 
-### Paso 8 — Configurar las variables de entorno
+### Paso 5 — Configurar las variables de entorno
 
 ```bash
 cp .env.example .env
 ```
 
-Abre `.env` y completa con tus datos:
+Abrí `.env` y completá:
 
 ```env
-# Puerto local donde se accede al CRM desde el navegador
+# Puerto donde se accede al CRM desde el navegador
 FRONTEND_PORT=3000
 
-# Token permanente del usuario de sistema (Paso 5)
-WA_ACCESS_TOKEN=EAAxxxxxxxxxxxxxx
+# URL del servidor OpenWA (sin slash final)
+OPENWA_URL=http://localhost:8080
 
-# ID del número de teléfono (Paso 6)
-WA_PHONE_NUMBER_ID=123456789012345
-
-# Token de verificación del webhook — invéntalo tú, cualquier texto secreto
-WA_VERIFY_TOKEN=mi_token_secreto_2026
+# API Key del servidor OpenWA (si lo configuraste con autenticación)
+# Dejar vacío si no tiene autenticación
+OPENWA_API_KEY=
 
 # CORS (déjalo en * para empezar)
 CORS_ORIGIN=*
 ```
 
-### Paso 9 — Levantar con Docker
+> Si tu servidor OpenWA corre en otra máquina, reemplazá `localhost` por la IP o dominio de ese servidor. Ej: `http://192.168.1.50:8080`
+
+### Paso 6 — Levantar con Docker
 
 ```bash
 docker compose up -d --build
 ```
 
-La primera vez tarda unos minutos mientras construye las imágenes. Cuando termine:
+La primera vez tarda unos minutos. Cuando termine:
 
 ```bash
-# Verificar que los contenedores están corriendo
 docker compose ps
 ```
 
 Deberías ver `rinran-backend` y `rinran-frontend` con estado `Up`.
 
-Abre el CRM en tu navegador: **http://localhost:3000**
+Abrí el CRM en el navegador: **http://localhost:3000**
 
----
-
-## Parte 3 — Conectar el webhook de Meta
-
-El webhook es el canal por donde Meta te avisa cuando alguien te escribe. Necesita una URL pública con HTTPS.
-
-### Opción A — Servidor en producción (recomendado)
-
-Si tienes un VPS con dominio, ve directo al [Despliegue en producción](#despliegue-en-producción) para configurar HTTPS, luego vuelve aquí.
-
-Tu URL de webhook será: `https://tudominio.com/webhook`
-
-### Opción B — Prueba local con ngrok
-
-Si quieres probar antes de tener servidor:
-
-1. Descarga ngrok desde **[ngrok.com/download](https://ngrok.com/download)**
-2. Crea una cuenta gratuita y copia tu authtoken
-3. Ejecuta:
+### Paso 7 — Verificar la conexión con OpenWA
 
 ```bash
-ngrok config add-authtoken TU_AUTHTOKEN
-ngrok http 3000
+curl http://localhost:3000/api/status
 ```
 
-4. ngrok te dará una URL pública como `https://abc123.ngrok-free.app` — úsala como tu dominio en los pasos siguientes
+Respuesta esperada:
+
+```json
+{
+  "crm": "ok",
+  "openwa": { "connected": true, "state": "CONNECTED" },
+  "openwa_url": "http://localhost:8080"
+}
+```
+
+Si `connected` es `false`, revisá que el servidor OpenWA esté corriendo y que `OPENWA_URL` en el `.env` sea correcto.
 
 ---
 
-### Paso 10 — Registrar el webhook en Meta
+## Parte 3 — Recibir mensajes entrantes (webhook)
 
-1. Ve a tu app en **[developers.facebook.com](https://developers.facebook.com)**
-2. Menú lateral: **WhatsApp → Configuración**
-3. Baja hasta la sección **Webhook** y clic en **Editar**
-4. Completa los campos:
-   - **URL de devolución de llamada**: `https://tudominio.com/webhook`
-   - **Token de verificación**: el mismo valor que pusiste en `WA_VERIFY_TOKEN`
-5. Clic en **Verificar y guardar**
+Para que los mensajes que te llegan al WhatsApp aparezcan en la Bandeja del CRM, el servidor OpenWA tiene que avisarle al CRM cada vez que llega uno. Esto se hace configurando un webhook.
 
-   > Meta enviará un GET a tu URL para confirmar que responde. Si el CRM está corriendo, responderá automáticamente y verás el mensaje "Webhook verificado".
+### Paso 8 — Configurar el webhook en OpenWA
 
-6. Una vez verificado, activa la suscripción:
-   - Busca el evento **messages** y activa el toggle ✓
+En la configuración de tu servidor OpenWA, agregá la URL del webhook del CRM:
 
----
+**Si usás Docker Compose en la misma máquina:**
 
-### Paso 11 — Verificar que todo funciona
+Editá tu `docker-compose.openwa.yml` y agregá la variable de entorno:
 
-Toma otro teléfono con WhatsApp y envía un mensaje a tu número registrado. En pocos segundos el contacto debe aparecer en el CRM con:
+```yaml
+environment:
+  - PORT=8080
+  - API_KEY=tu_api_key_secreta
+  - WEBHOOK_URL=http://rinran-backend:4000/webhook
+```
 
-- Su nombre (tomado del perfil de WhatsApp)
-- Su número con código de país
-- La bandera de su país
-- Fuente: `whatsapp`
+> Usá el nombre del contenedor (`rinran-backend`) si OpenWA y el CRM están en la misma red Docker. Si están en máquinas distintas, usá la IP o dominio público del CRM.
 
-Si no aparece, revisa los logs:
+**Si OpenWA está en otra máquina:**
+
+```yaml
+environment:
+  - WEBHOOK_URL=https://tudominio.com/webhook
+```
+
+Reiniciá el contenedor OpenWA después del cambio:
+
+```bash
+docker compose -f docker-compose.openwa.yml restart
+```
+
+### Paso 9 — Verificar que llegan mensajes
+
+Enviá un mensaje desde otro teléfono a tu número de WhatsApp. En pocos segundos debe aparecer en la **Bandeja** del CRM con:
+
+- Nombre del contacto (tomado del perfil de WhatsApp)
+- Número con bandera de país
+- El mensaje recibido
+
+Si no aparece, revisá los logs del backend:
 
 ```bash
 docker compose logs -f backend
@@ -296,52 +243,42 @@ docker compose logs -f backend
 
 ## Instalar en el teléfono
 
-El CRM funciona desde el navegador del teléfono y se puede guardar en la pantalla de inicio como una app. Una vez instalado, abre en pantalla completa sin barra de navegación del browser — igual que una app nativa.
+El CRM funciona desde el navegador del teléfono y se puede guardar en la pantalla de inicio como una app. Una vez instalado, abre en pantalla completa sin barra del browser — igual que una app nativa.
 
 > Requiere que el CRM esté desplegado con HTTPS. No funciona desde `localhost`.
 
 ### iPhone — Safari
 
-1. Abre el CRM en **Safari** (debe ser Safari, no Chrome ni otro browser)
-2. Tocá el botón de compartir — el ícono de caja con flecha hacia arriba, en la barra inferior
+1. Abrí el CRM en **Safari** (debe ser Safari, no Chrome)
+2. Tocá el botón de compartir — ícono de caja con flecha hacia arriba, en la barra inferior
 3. Bajá en el menú hasta **"Agregar a pantalla de inicio"**
-4. Ponle el nombre que quieras (ej: `Rinran CRM`) y tocá **Agregar**
-
-El ícono aparece en tu pantalla de inicio. Al tocarlo abre el CRM en pantalla completa.
+4. Ponele el nombre que quieras y tocá **Agregar**
 
 ### Android — Chrome
 
-1. Abre el CRM en **Chrome**
-2. Tocá los tres puntos `⋮` en la esquina superior derecha
+1. Abrí el CRM en **Chrome**
+2. Tocá los tres puntos `⋮` arriba a la derecha
 3. Tocá **"Agregar a pantalla de inicio"** o **"Instalar app"**
 4. Confirmá con **Agregar**
 
-> En Android, Chrome a veces muestra automáticamente un banner en la parte inferior con el botón **"Instalar"** — podés usarlo directamente sin entrar al menú.
+> Chrome a veces muestra un banner automático abajo con el botón **"Instalar"** — podés usarlo directamente.
 
-### Resultado
-
-Desde la pantalla de inicio podés:
-- Ver la Bandeja con todos los mensajes nuevos de un vistazo
-- Responder conversaciones individuales
-- Enviar broadcasts
-- Todo sin abrir el navegador manualmente
+Desde la pantalla de inicio podés ver la Bandeja, responder chats y enviar broadcasts sin abrir el navegador manualmente.
 
 ---
 
 ## Parte 4 — Crear la campaña en Meta Ads
 
-### Paso 12 — Crear anuncio con CTA a WhatsApp
+Esta parte es opcional. Si además de recibir mensajes directos querés capturar leads desde anuncios, podés crear una campaña con botón CTA a WhatsApp.
 
 1. Ve a **[adsmanager.facebook.com](https://adsmanager.facebook.com)**
 2. Clic en **Crear**
 3. Objetivo: **Interacción** → subcategoría **Mensajes**
-4. Plataforma de mensajería: **WhatsApp**
-5. Conecta la página de Facebook de tu negocio y el número de WhatsApp registrado
-6. Diseña tu anuncio (imagen/video + texto)
-7. En el CTA (llamada a la acción) selecciona **Enviar mensaje**
-8. El mensaje de bienvenida que aparece cuando el usuario abre WhatsApp puedes personalizarlo
+4. Plataforma: **WhatsApp**
+5. Conectá tu número de WhatsApp
+6. Diseñá el anuncio y elegí CTA **"Enviar mensaje"**
 
-Cuando alguien haga clic en el anuncio y te escriba → el CRM lo captura automáticamente.
+Cuando alguien haga clic y te escriba → OpenWA recibe el mensaje → el CRM lo captura automáticamente en la Bandeja.
 
 ---
 
@@ -349,37 +286,39 @@ Cuando alguien haga clic en el anuncio y te escriba → el CRM lo captura autom�
 
 ```
 rinran-crm/
-├── backend/                    API REST + lógica de negocio
+├── backend/
 │   ├── src/
 │   │   ├── server.js           Punto de entrada Express
 │   │   ├── db.js               Conexión SQLite + schema + seed
 │   │   ├── phoneUtils.js       Parser de teléfonos y detección de país
+│   │   ├── whatsapp.js         Cliente OpenWA: sendText, getStatus, formato de números
 │   │   └── routes/
 │   │       ├── contacts.js     CRUD de contactos
 │   │       ├── categories.js   CRUD de categorías
-│   │       ├── messages.js     Envío individual y broadcast masivo
+│   │       ├── messages.js     Envío individual y broadcast vía OpenWA
 │   │       ├── inbox.js        Bandeja de conversaciones con no leídos
 │   │       ├── stats.js        Estadísticas del dashboard
-│   │       └── webhook.js      Receptor de mensajes entrantes de Meta
+│   │       ├── status.js       Estado de conexión con OpenWA
+│   │       └── webhook.js      Receptor de eventos del servidor OpenWA
 │   ├── Dockerfile
 │   └── package.json
 │
-├── frontend/                   Interfaz React (mobile-first)
+├── frontend/
 │   ├── src/
-│   │   ├── main.jsx            Punto de entrada React
+│   │   ├── main.jsx
 │   │   ├── App.jsx             Router + sidebar desktop + nav móvil
-│   │   ├── index.css           Tailwind base
+│   │   ├── index.css
 │   │   ├── hooks/
-│   │   │   └── useApi.js       Cliente HTTP genérico
+│   │   │   └── useApi.js
 │   │   └── pages/
 │   │       ├── Inbox.jsx       Bandeja de conversaciones (pantalla principal)
-│   │       ├── Dashboard.jsx   Estadísticas y gráficos
+│   │       ├── Dashboard.jsx   Estadísticas
 │   │       ├── Contacts.jsx    Lista/tarjetas de contactos
 │   │       ├── ContactDetail.jsx  Chat individual con polling automático
 │   │       ├── Broadcast.jsx   Envío masivo + historial
 │   │       └── Categories.jsx  Gestión de categorías
-│   ├── Dockerfile              Build multi-stage (Vite → Nginx)
-│   ├── nginx.conf              Proxy API + SPA routing
+│   ├── Dockerfile
+│   ├── nginx.conf
 │   └── package.json
 │
 ├── docker-compose.yml
@@ -397,9 +336,9 @@ rinran-crm/
 |------|-----------|
 | Runtime | Node.js 22 |
 | Framework | Express 4 |
-| Base de datos | SQLite vía `node:sqlite` (módulo nativo de Node.js 22) |
+| Base de datos | SQLite vía `node:sqlite` (nativo Node.js 22) |
 | Teléfonos | libphonenumber-js |
-| WhatsApp | Meta Cloud API v20 |
+| WhatsApp | OpenWA server (vía REST API) |
 | HTTP client | Axios |
 
 ### Frontend
@@ -417,7 +356,7 @@ rinran-crm/
 |----------|---------|
 | Contenedores | Docker + Docker Compose |
 | Red interna | Bridge `rinran` |
-| Persistencia | Docker volume `crm-data` montado en `/data` |
+| Persistencia | Docker volume `crm-data` → `/data/rinran.db` |
 
 ---
 
@@ -431,7 +370,7 @@ Base URL: `http://localhost:3000/api`
 |--------|----------|-------------|
 | `GET` | `/contacts` | Lista paginada. Params: `search`, `category_id`, `status`, `page`, `limit` |
 | `GET` | `/contacts/:id` | Detalle + historial de mensajes |
-| `POST` | `/contacts` | Crear contacto. Body: `name`, `phone`, `category_id?`, `notes?` |
+| `POST` | `/contacts` | Crear. Body: `name`, `phone`, `category_id?`, `notes?` |
 | `PATCH` | `/contacts/:id` | Actualizar. Body: `name?`, `category_id?`, `notes?`, `status?` |
 | `DELETE` | `/contacts/:id` | Eliminar contacto y sus mensajes |
 
@@ -448,78 +387,72 @@ Base URL: `http://localhost:3000/api`
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `POST` | `/messages/send` | Envío individual. Body: `contact_id`, `message` |
+| `POST` | `/messages/send` | Envío individual vía OpenWA. Body: `contact_id`, `message` |
 | `POST` | `/messages/broadcast` | Envío masivo. Body: `name?`, `message`, `category_id?` |
 | `GET` | `/messages/broadcasts` | Historial de broadcasts |
 
-### Bandeja (Inbox)
+### Bandeja
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/inbox` | Conversaciones ordenadas por último mensaje, con conteo de no leídos. Param: `search` |
-| `PATCH` | `/inbox/:id/read` | Marca todos los mensajes entrantes de un contacto como leídos |
+| `GET` | `/inbox` | Conversaciones ordenadas por último mensaje, con no leídos. Param: `search` |
+| `PATCH` | `/inbox/:id/read` | Marca mensajes entrantes de un contacto como leídos |
 
-### Estadísticas y Webhook
+### Estado y Webhook
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/stats` | Totales, distribución por país y categoría |
-| `GET` | `/webhook` | Verificación del webhook por Meta |
-| `POST` | `/webhook` | Recepción de mensajes entrantes |
+| `GET` | `/status` | Estado de conexión del CRM con el servidor OpenWA |
+| `POST` | `/webhook` | Receptor de eventos del servidor OpenWA (mensajes entrantes) |
 
 ---
 
-## Base de datos
+## Formato de números
 
-SQLite con WAL mode. Archivo persistido en el volumen Docker `crm-data` (`/data/rinran.db`).
+OpenWA usa el formato `{número}@c.us`. El CRM convierte automáticamente:
 
-| Tabla | Descripción |
-|-------|-------------|
-| `categories` | Etiquetas con nombre y color |
-| `contacts` | Contactos con teléfono, país, categoría y fuente |
-| `messages` | Historial de mensajes entrantes y salientes |
-| `broadcasts` | Registro de envíos masivos con contadores |
-
-### Categorías creadas automáticamente al iniciar
-
-| Nombre | Color |
-|--------|-------|
-| Lead | Amarillo `#f59e0b` |
-| Cliente | Verde `#10b981` |
-| VIP | Violeta `#8b5cf6` |
-| Inactivo | Gris `#6b7280` |
+| Dirección | Formato | Ejemplo |
+|-----------|---------|---------|
+| CRM → OpenWA | `número@c.us` | `5491122334455@c.us` |
+| OpenWA → CRM | E.164 con `+` | `+5491122334455` |
 
 ---
 
 ## Flujo completo de mensajes
 
 ```
-  Alguien te escribe directamente       Alguien llega por campaña de Meta
-            │                                        │
-            │                                        │ clic en anuncio → "Enviar mensaje"
-            └──────────────────┬─────────────────────┘
-                               │
-                               │  Meta envía el evento al webhook del CRM
-                               ▼
-                        [POST /webhook]
-                               │
-                  ┌────────────┴────────────┐
-                  │                         │
-           contacto nuevo            contacto existente
-                  │                         │
-         se crea automáticamente    se agrega el mensaje
-         (nombre WA + bandera)       al historial
-                  │                         │
-                  └────────────┬────────────┘
-                               │
-                               ▼
-                    [Bandeja del CRM — /inbox]
-                    Aparece con badge de no leído
-                               │
-                  ┌────────────┴────────────┐
-                  │                         │
-         Respondés individualmente    O enviás un broadcast
-         desde el chat del contacto   a toda una categoría
+  Alguien te escribe al WhatsApp
+            │
+            │ OpenWA detecta el mensaje
+            ▼
+  [Servidor OpenWA]
+            │
+            │ POST /webhook (evento tipo "message")
+            ▼
+     [Rinran CRM — webhook.js]
+            │
+       ┌────┴────┐
+       │         │
+   nuevo     existente
+  contacto   contacto
+       │         │
+  se crea    se agrega
+  automát.   al historial
+       │         │
+       └────┬────┘
+            ▼
+   [Bandeja — badge de no leído]
+            │
+       ┌────┴────┐
+       │         │
+  Respondés   Broadcast
+  en el chat  por categoría
+            │
+            ▼
+    [OpenWA envía el mensaje]
+            │
+            ▼
+  [WhatsApp del contacto]
 ```
 
 ---
@@ -533,14 +466,14 @@ docker compose logs -f
 # Ver logs solo del backend
 docker compose logs -f backend
 
-# Reiniciar un servicio sin rebuild
+# Verificar conexión con OpenWA
+curl http://localhost:3000/api/status
+
+# Reiniciar sin rebuild
 docker compose restart backend
 
-# Rebuild completo después de cambios en el código
+# Rebuild completo (después de cambios en el código)
 docker compose up -d --build
-
-# Entrar al contenedor del backend
-docker compose exec backend sh
 
 # Backup de la base de datos
 docker compose exec backend sh -c "cp /data/rinran.db /data/backup_$(date +%Y%m%d).db"
@@ -553,10 +486,11 @@ docker compose down
 
 ## Despliegue en producción
 
-### Requisitos del servidor
+### Requisitos
 - VPS con Ubuntu 22.04+ (o cualquier Linux)
-- Docker + Docker Compose instalados
+- Docker + Docker Compose
 - Dominio apuntando al IP del servidor
+- Servidor OpenWA accesible desde el VPS
 
 ### Instalar Docker en Ubuntu
 
@@ -572,21 +506,16 @@ newgrp docker
 git clone https://github.com/marcosfermin/rinran-crm.git
 cd rinran-crm
 cp .env.example .env
-nano .env   # completar con tus credenciales
+nano .env
 docker compose up -d --build
 ```
 
 ### Configurar HTTPS con Nginx + Certbot
 
 ```bash
-# Instalar Nginx y Certbot
 sudo apt install -y nginx certbot python3-certbot-nginx
-
-# Crear configuración de Nginx
 sudo nano /etc/nginx/sites-available/rinran
 ```
-
-Contenido del archivo:
 
 ```nginx
 server {
@@ -604,48 +533,39 @@ server {
 ```
 
 ```bash
-# Activar el sitio
 sudo ln -s /etc/nginx/sites-available/rinran /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-
-# Generar certificado SSL (reemplaza tudominio.com con el tuyo)
+sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d tudominio.com
-
-# Certbot edita la config automáticamente para HTTPS
-sudo systemctl reload nginx
 ```
 
-Tu CRM estará disponible en `https://tudominio.com` y el webhook en `https://tudominio.com/webhook`.
+El CRM queda en `https://tudominio.com` y el webhook en `https://tudominio.com/webhook`.
 
 ---
 
-## Checklist completo antes de recibir leads
+## Checklist completo
 
-**Meta y WhatsApp**
-- [ ] Cuenta de Meta Business Manager creada
-- [ ] App de Meta tipo Business creada
-- [ ] WhatsApp agregado como producto en la app
-- [ ] Número de teléfono registrado y verificado (o migrado desde WhatsApp Business)
-- [ ] Token de acceso permanente generado (usuario de sistema)
+**Servidor OpenWA**
+- [ ] OpenWA corriendo y conectado al WhatsApp (QR escaneado)
+- [ ] `curl http://openwa-url:puerto/getConnectionState` responde `CONNECTED`
+- [ ] Webhook configurado en OpenWA apuntando a `http://rinran-backend:4000/webhook` (o URL pública)
 
-**Configuración del CRM**
-- [ ] `.env` completado con `WA_ACCESS_TOKEN` y `WA_PHONE_NUMBER_ID`
-- [ ] CRM corriendo: `docker compose up -d --build`
-- [ ] Dominio con HTTPS apuntando al servidor
+**CRM**
+- [ ] `.env` completado con `OPENWA_URL` y `OPENWA_API_KEY` (si aplica)
+- [ ] `docker compose up -d --build` sin errores
+- [ ] `GET /api/status` responde `connected: true`
 
-**Webhook**
-- [ ] Webhook registrado en Meta con la URL pública
-- [ ] Evento `messages` suscrito
-- [ ] Prueba: enviar un mensaje desde otro WhatsApp → aparece en la Bandeja del CRM
+**Prueba de mensajes**
+- [ ] Enviar un mensaje desde otro WhatsApp al número conectado
+- [ ] El contacto aparece en la Bandeja del CRM automáticamente
+- [ ] Responder desde el CRM y verificar que llega al WhatsApp
 
-**Teléfono**
+**Teléfono (opcional)**
 - [ ] Abrir el CRM desde Safari (iPhone) o Chrome (Android)
 - [ ] Agregar a pantalla de inicio
-- [ ] Verificar que abre en pantalla completa sin barra del browser
+- [ ] Verificar que abre en pantalla completa
 
-**Campaña**
-- [ ] Campaña de Meta Ads creada con objetivo Mensajes y CTA a WhatsApp
+**Campaña Meta Ads (opcional)**
+- [ ] Campaña creada con objetivo Mensajes y CTA a WhatsApp
 
 ---
 

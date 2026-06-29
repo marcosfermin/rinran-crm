@@ -13,9 +13,14 @@ function toWaId(phone) {
   return phone.replace(/^\+/, '').replace(/\s+/g, '') + '@c.us';
 }
 
-// Format phone from OpenWA back to E.164: 5491122334455@c.us → +5491122334455
+// Format phone from OpenWA back to E.164
+// Handles @c.us, @s.whatsapp.net, and @lid (newer WhatsApp LID format)
 function fromWaId(waId) {
-  return '+' + waId.replace('@c.us', '').replace('@s.whatsapp.net', '');
+  return '+' + waId
+    .replace(/@c\.us$/, '')
+    .replace(/@s\.whatsapp\.net$/, '')
+    .replace(/@lid$/, '')
+    .replace(/\s+/g, '');
 }
 
 async function sendText(phone, text) {

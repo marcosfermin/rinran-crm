@@ -6,7 +6,7 @@ const { fromWaId } = require('../whatsapp');
 
 // GET /webhook — health check
 router.get('/', (req, res) => {
-  res.json({ ok: true, endpoint: 'Rinran CRM webhook — POST only' });
+  res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
 });
 
 // POST /webhook — receives events from OpenWA server
@@ -14,66 +14,56 @@ router.post('/', (req, res) => {
   res.sendStatus(200); // Acknowledge immediately
 
   const body = req.body;
-  console.log('[webhook] RAW PAYLOAD:', JSON.stringify(body, null, 2));
+  const event = body?.event || body?.type || '';
+
+  // Only handle incoming message events
+  if (!event.includes('message') && event !== 'message') {
+    console.log('[webhook] Ignoring event:', event);
+    return;
+  }
 
   try {
     const db = getDb();
 
-    // OpenWA can send two formats:
-    // Format A: { type: "message", data: { from, body, fromMe, sender, ... } }
-    // Format B: direct message object { from, body, fromMe, type: "chat", sender, ... }
+    // OpenWA sends: { event: "message.received", data: { from, body, fromMe, type, contact, ... } }
+    const msgData = body?.data || body;
 
-    let msgData = null;
+    if (!msgData) return;
 
-    if (body?.type === 'message' && body?.data) {
-      // Format A
-      msgData = body.data;
-    } else if (body?.from && !body?.fromMe && body?.type !== 'message') {
-      // Format B — top-level message object
-      msgData = body;
-    } else if (body?.type === 'message' && !body?.data) {
-      // Format A without data wrapper — try top level
-      msgData = body;
-    }
+    // Skip outbound messages
+    if (msgData.fromMe === true) return;
 
-    if (!msgData) {
-      console.log('[webhook] Unrecognized or non-message payload, ignoring. type:', body?.type);
-      return;
-    }
+    // Skip group messages
+    if (msgData.isGroup === true) return;
 
-    // Skip outbound
-    if (msgData.fromMe) {
-      console.log('[webhook] Skipping outbound message');
-      return;
-    }
+    // Skip status broadcasts
+    if (msgData.isStatusBroadcast === true) return;
 
-    // Skip non-text (images, audio, etc.)
-    const msgType = msgData.type || msgData.mimetype ? 'media' : 'chat';
-    if (msgData.mimetype) {
-      console.log('[webhook] Skipping media message, mimetype:', msgData.mimetype);
-      return;
-    }
+    // Skip media (images, audio, etc.) — no text to store
+    if (msgData.mimetype) return;
 
-    const rawFrom = msgData.from || msgData.sender?.id || msgData.chatId || '';
+    const rawFrom = msgData.from || msgData.chatId || msgData.sender?.id || '';
     if (!rawFrom) {
-      console.log('[webhook] No "from" field found in payload');
+      console.log('[webhook] No "from" field found');
       return;
     }
 
     const rawPhone = fromWaId(rawFrom);
     const parsed = parsePhone(rawPhone);
     const text = msgData.body || msgData.content || msgData.text || '';
+
+    if (!text.trim()) return;
+
     const wa_message_id = msgData.id?._serialized ?? msgData.id ?? null;
-    const senderName = msgData.sender?.pushname
+
+    // Name: try multiple fields depending on OpenWA version
+    const senderName = msgData.contact?.pushName
+      || msgData.contact?.name
+      || msgData.sender?.pushname
       || msgData.sender?.name
       || msgData.notifyName
       || msgData.senderName
       || `WhatsApp ${parsed.phone}`;
-
-    if (!text) {
-      console.log('[webhook] Empty text, skipping');
-      return;
-    }
 
     let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
     if (!contact) {
@@ -82,7 +72,7 @@ router.post('/', (req, res) => {
         VALUES (?, ?, ?, ?, ?, 'whatsapp')
       `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
-      console.log(`[webhook] New contact created: ${parsed.phone} (${senderName})`);
+      console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
     }
 
     db.prepare(`
@@ -90,10 +80,9 @@ router.post('/', (req, res) => {
       VALUES (?, 'inbound', ?, ?, 'received')
     `).run(contact.id, text, wa_message_id);
 
-    console.log(`[webhook] ✓ Message saved — from ${parsed.phone} (${senderName}): ${text}`);
+    console.log(`[webhook] ✓ ${parsed.phone} (${senderName}): ${text}`);
   } catch (e) {
-    console.error('[webhook] Error processing payload:', e.message);
-    console.error(e.stack);
+    console.error('[webhook] Error:', e.message);
   }
 });
 

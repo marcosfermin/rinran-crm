@@ -16,8 +16,8 @@ router.post('/send', async (req, res) => {
   let status = 'sent';
 
   try {
-    const result = await sendText(contact.phone, message);
-    wa_message_id = result?.response?.id?._serialized ?? result?.id ?? null;
+    const result = await sendText(contact.phone, message, contact.wa_chat_id);
+    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
   } catch (e) {
     status = 'failed';
     console.error('OpenWA send error:', e.response?.data || e.message);
@@ -52,8 +52,8 @@ router.post('/broadcast', async (req, res) => {
 
   for (const contact of contacts) {
     try {
-      const result = await sendText(contact.phone, message);
-      const wa_message_id = result?.response?.id?._serialized ?? result?.id ?? null;
+      const result = await sendText(contact.phone, message, contact.wa_chat_id);
+      const wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
       db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, 'outbound', ?, ?, 'sent')`).run(contact.id, message, wa_message_id);
       sent++;
     } catch {

@@ -61,11 +61,13 @@ router.post('/', async (req, res) => {
     let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
     if (!contact) {
       const r = db.prepare(`
-        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source)
-        VALUES (?, ?, ?, ?, ?, 'whatsapp')
-      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name);
+        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id)
+        VALUES (?, ?, ?, ?, ?, 'whatsapp', ?)
+      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawFrom);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
-      console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
+      console.log(`[webhook] New contact: ${parsed.phone} (${senderName}) chatId=${rawFrom}`);
+    } else if (!contact.wa_chat_id) {
+      db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(rawFrom, contact.id);
     }
 
     // Avoid duplicate messages

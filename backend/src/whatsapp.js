@@ -4,17 +4,26 @@ const base = () => process.env.OPENWA_URL?.replace(/\/$/, '');
 
 function headers() {
   const key = process.env.OPENWA_API_KEY;
-  if (!key) return { 'Content-Type': 'application/json' };
-  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` };
+  const h = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (key) h['Authorization'] = `Bearer ${key}`;
+  return h;
 }
 
-// Format phone for OpenWA: +5491122334455 → 5491122334455@c.us
+// Cache the active WAHA session
+let _session = null;
+async function getSession() {
+  if (_session) return _session;
+  const res = await axios.get(`${base()}/api/sessions`, { headers: headers(), timeout: 10000 });
+  const list = Array.isArray(res.data) ? res.data : [];
+  _session = list.find(s => s.status === 'ready') || list[0] || null;
+  return _session;
+}
+
+// Phone ↔ WhatsApp ID helpers
 function toWaId(phone) {
   return phone.replace(/^\+/, '').replace(/\s+/g, '') + '@c.us';
 }
 
-// Format phone from OpenWA back to E.164
-// Handles @c.us, @s.whatsapp.net, and @lid (newer WhatsApp LID format)
 function fromWaId(waId) {
   return '+' + waId
     .replace(/@c\.us$/, '')
@@ -23,84 +32,77 @@ function fromWaId(waId) {
     .replace(/\s+/g, '');
 }
 
-// Resolve a contact ID (including @lid) to real phone number and name
-async function getContact(contactId) {
-  try {
-    const res = await axios.post(`${base()}/getContact`, {
-      args: { id: contactId }
-    }, { headers: headers(), timeout: 8000 });
-    return res.data?.response ?? res.data ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// Get all chats (non-group conversations)
-async function getAllChats() {
-  let raw;
-  try {
-    const res = await axios.get(`${base()}/getAllChats`, { headers: headers(), timeout: 30000 });
-    raw = res.data;
-  } catch {
-    try {
-      const res = await axios.post(`${base()}/getAllChats`, {}, { headers: headers(), timeout: 30000 });
-      raw = res.data;
-    } catch (e) {
-      console.error('[openwa] getAllChats failed:', e.message);
-      return [];
-    }
-  }
-
-  console.log('[openwa] getAllChats raw type:', typeof raw, Array.isArray(raw) ? 'array' : JSON.stringify(raw)?.slice(0, 300));
-
-  // Handle every known response shape
-  if (Array.isArray(raw)) return raw;
-  if (Array.isArray(raw?.response)) return raw.response;
-  if (Array.isArray(raw?.data)) return raw.data;
-  if (Array.isArray(raw?.chats)) return raw.chats;
-  if (raw?.response && typeof raw.response === 'object' && !Array.isArray(raw.response)) {
-    const vals = Object.values(raw.response);
-    if (vals.length && Array.isArray(vals[0])) return vals[0];
-  }
-  return [];
-}
-
-// Get all messages for a chat
-async function getChatMessages(chatId, limit = 500) {
-  try {
-    const res = await axios.post(`${base()}/loadAndGetAllMessagesInChat`, {
-      args: { chatId, includeMe: true, limit }
-    }, { headers: headers(), timeout: 30000 });
-    return res.data?.response ?? res.data ?? [];
-  } catch {
-    try {
-      const res = await axios.post(`${base()}/getAllMessagesInChat`, {
-        args: { chatId, includeMe: true }
-      }, { headers: headers(), timeout: 30000 });
-      return res.data?.response ?? res.data ?? [];
-    } catch {
-      return [];
-    }
-  }
-}
-
-async function sendText(phone, text) {
-  const url = `${base()}/sendText`;
-  const res = await axios.post(url, {
-    args: { to: toWaId(phone), content: text }
+// Send a text message — uses WAHA REST format
+async function sendText(phone, text, waChatId) {
+  const session = await getSession();
+  // Prefer the stored waChatId (handles @lid contacts correctly)
+  const chatId = waChatId || toWaId(phone);
+  const res = await axios.post(`${base()}/api/sendText`, {
+    chatId,
+    text,
+    session: session?.name || 'default',
   }, { headers: headers() });
   return res.data;
 }
 
+// Get connection state
 async function getStatus() {
   try {
-    const res = await axios.get(`${base()}/getConnectionState`, {
-      headers: headers(), timeout: 5000
-    });
-    return { connected: true, state: res.data?.response ?? res.data };
+    await axios.get(`${base()}/api/health`, { headers: headers(), timeout: 5000 });
+    const session = await getSession().catch(() => null);
+    return { connected: session?.status === 'ready', state: session?.status || 'unknown' };
   } catch {
     return { connected: false, state: null };
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages };
+// Resolve a contact ID to full info (phone number, name)
+async function getContact(contactId) {
+  try {
+    const session = await getSession();
+    const res = await axios.get(
+      `${base()}/api/sessions/${session.id}/contacts/${encodeURIComponent(contactId)}`,
+      { headers: headers(), timeout: 8000 }
+    );
+    return res.data;
+  } catch {
+    return null;
+  }
+}
+
+// Get all individual chats
+async function getAllChats() {
+  try {
+    const session = await getSession();
+    if (!session) return [];
+    const res = await axios.get(
+      `${base()}/api/sessions/${session.id}/chats`,
+      { headers: headers(), timeout: 30000 }
+    );
+    return Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    console.error('[openwa] getAllChats error:', e.message);
+    return [];
+  }
+}
+
+// Get messages for a specific chat
+async function getChatMessages(chatId, limit = 500) {
+  try {
+    const session = await getSession();
+    if (!session) return [];
+    const res = await axios.get(
+      `${base()}/api/sessions/${session.id}/chats/${encodeURIComponent(chatId)}/messages`,
+      { headers: headers(), timeout: 30000, params: { limit } }
+    );
+    const d = res.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.messages)) return d.messages;
+    return [];
+  } catch (e) {
+    console.error(`[openwa] getChatMessages(${chatId}) error:`, e.message);
+    return [];
+  }
+}
+
+module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages, getSession };

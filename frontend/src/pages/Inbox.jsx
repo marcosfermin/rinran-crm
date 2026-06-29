@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, MessageSquare } from 'lucide-react';
+import { Search, MessageSquare, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 function timeAgo(dateStr) {
@@ -15,10 +15,39 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString('es', { day: '2-digit', month: 'short' });
 }
 
+function useSyncStatus() {
+  const [status, setStatus] = useState({ running: false, lastSync: null, imported: { contacts: 0, messages: 0 } });
+  const polling = useRef(null);
+
+  const check = useCallback(() => {
+    apiFetch('/api/sync').then(r => r?.json()).then(d => d && setStatus(d)).catch(() => {});
+  }, []);
+
+  const startSync = useCallback(async () => {
+    await apiFetch('/api/sync', { method: 'POST' });
+    check();
+    polling.current = setInterval(() => {
+      apiFetch('/api/sync').then(r => r?.json()).then(d => {
+        if (!d) return;
+        setStatus(d);
+        if (!d.running) clearInterval(polling.current);
+      }).catch(() => {});
+    }, 2000);
+  }, [check]);
+
+  useEffect(() => {
+    check();
+    return () => clearInterval(polling.current);
+  }, [check]);
+
+  return { status, startSync };
+}
+
 export default function InboxPage() {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState('');
+  const { status: syncStatus, startSync } = useSyncStatus();
 
   const load = useCallback(() => {
     const params = new URLSearchParams();
@@ -30,12 +59,17 @@ export default function InboxPage() {
   }, [search]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Poll for new messages every 8 seconds
   useEffect(() => {
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, [load]);
+
+  // Reload inbox after sync finishes
+  const wasSyncing = useRef(false);
+  useEffect(() => {
+    if (wasSyncing.current && !syncStatus.running) load();
+    wasSyncing.current = syncStatus.running;
+  }, [syncStatus.running]);
 
   const totalUnread = conversations.reduce((s, c) => s + (c.unread_count || 0), 0);
 
@@ -52,7 +86,30 @@ export default function InboxPage() {
               </span>
             )}
           </div>
+          <button
+            onClick={startSync}
+            disabled={syncStatus.running}
+            title="Sincronizar historial de WhatsApp"
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={syncStatus.running ? 'animate-spin' : ''} />
+            {syncStatus.running ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
         </div>
+
+        {/* Sync progress */}
+        {syncStatus.running && (
+          <div className="mb-2 text-xs text-gray-500 px-0.5">
+            Importando mensajes... {syncStatus.imported.contacts} contactos · {syncStatus.imported.messages} mensajes
+          </div>
+        )}
+        {syncStatus.lastSync && !syncStatus.running && (
+          <div className="mb-2 text-xs text-gray-600 px-0.5">
+            Última sync: {new Date(syncStatus.lastSync).toLocaleString('es')}
+            {syncStatus.imported.messages > 0 && ` · ${syncStatus.imported.messages} mensajes importados`}
+          </div>
+        )}
+
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
@@ -66,11 +123,11 @@ export default function InboxPage() {
 
       {/* Conversations */}
       <div className="flex-1 overflow-y-auto divide-y divide-gray-800/60">
-        {conversations.length === 0 && (
+        {conversations.length === 0 && !syncStatus.running && (
           <div className="flex flex-col items-center justify-center h-64 text-gray-600">
             <MessageSquare size={36} className="mb-3 opacity-30" />
             <p className="text-sm">Sin conversaciones aún</p>
-            <p className="text-xs mt-1 text-gray-700">Los mensajes de WhatsApp aparecerán aquí</p>
+            <p className="text-xs mt-1 text-gray-700">Presioná "Sincronizar" para importar el historial</p>
           </div>
         )}
         {conversations.map(c => (
@@ -79,7 +136,6 @@ export default function InboxPage() {
             onClick={() => navigate(`/contacts/${c.id}`)}
             className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors text-left"
           >
-            {/* Avatar */}
             <div className="relative shrink-0">
               <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center text-2xl">
                 {c.country_flag || '👤'}
@@ -89,7 +145,6 @@ export default function InboxPage() {
               )}
             </div>
 
-            {/* Content */}
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
                 <span className={`text-sm font-semibold truncate ${c.unread_count > 0 ? 'text-white' : 'text-gray-300'}`}>

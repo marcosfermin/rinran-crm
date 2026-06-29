@@ -21,6 +21,7 @@ app.use('/webhook', require('./routes/webhook'));
 app.get('/health', (_, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 // Protected routes
+app.use('/api/sync',       auth, require('./routes/sync'));
 app.use('/api/contacts',   auth, require('./routes/contacts'));
 app.use('/api/categories', auth, require('./routes/categories'));
 app.use('/api/messages',   auth, require('./routes/messages'));

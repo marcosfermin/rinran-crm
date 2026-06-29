@@ -2,77 +2,76 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { fromWaId } = require('../whatsapp');
+const { fromWaId, getContact } = require('../whatsapp');
 
 // GET /webhook — health check
 router.get('/', (req, res) => {
   res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
 });
 
-// POST /webhook — receives events from OpenWA server
-router.post('/', (req, res) => {
-  res.sendStatus(200); // Acknowledge immediately
+async function resolvePhone(rawFrom, msgData) {
+  // LID format (@lid) is a WhatsApp internal ID — resolve to real phone via OpenWA API
+  if (rawFrom.includes('@lid')) {
+    const info = await getContact(rawFrom);
+    const realUser = info?.id?.user || info?.number || info?.phone;
+    if (realUser) {
+      console.log(`[webhook] Resolved LID ${rawFrom} → +${realUser}`);
+      return '+' + realUser;
+    }
+  }
+  return fromWaId(rawFrom);
+}
+
+// POST /webhook — receives events from OpenWA
+router.post('/', async (req, res) => {
+  res.sendStatus(200);
 
   const body = req.body;
   const event = body?.event || body?.type || '';
 
-  // Only handle incoming message events
-  if (!event.includes('message') && event !== 'message') {
-    console.log('[webhook] Ignoring event:', event);
-    return;
-  }
+  if (!event.includes('message')) return;
 
   try {
     const db = getDb();
-
-    // OpenWA sends: { event: "message.received", data: { from, body, fromMe, type, contact, ... } }
     const msgData = body?.data || body;
 
     if (!msgData) return;
-
-    // Skip outbound messages
     if (msgData.fromMe === true) return;
-
-    // Skip group messages
     if (msgData.isGroup === true) return;
-
-    // Skip status broadcasts
     if (msgData.isStatusBroadcast === true) return;
-
-    // Skip media (images, audio, etc.) — no text to store
-    if (msgData.mimetype) return;
+    if (msgData.mimetype) return; // skip media
 
     const rawFrom = msgData.from || msgData.chatId || msgData.sender?.id || '';
-    if (!rawFrom) {
-      console.log('[webhook] No "from" field found');
-      return;
-    }
+    if (!rawFrom) return;
 
-    const rawPhone = fromWaId(rawFrom);
-    const parsed = parsePhone(rawPhone);
     const text = msgData.body || msgData.content || msgData.text || '';
-
     if (!text.trim()) return;
 
+    const phone = await resolvePhone(rawFrom, msgData);
+    const parsed = parsePhone(phone);
     const wa_message_id = msgData.id?._serialized ?? msgData.id ?? null;
 
-    // Name: try multiple fields depending on OpenWA version
     const senderName = msgData.contact?.pushName
       || msgData.contact?.name
       || msgData.sender?.pushname
       || msgData.sender?.name
       || msgData.notifyName
-      || msgData.senderName
       || `WhatsApp ${parsed.phone}`;
 
     let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
     if (!contact) {
-      const result = db.prepare(`
+      const r = db.prepare(`
         INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source)
         VALUES (?, ?, ?, ?, ?, 'whatsapp')
       `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name);
-      contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+      contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
       console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
+    }
+
+    // Avoid duplicate messages
+    if (wa_message_id) {
+      const dup = db.prepare('SELECT id FROM messages WHERE wa_message_id = ?').get(wa_message_id);
+      if (dup) return;
     }
 
     db.prepare(`

@@ -17,8 +17,7 @@ router.post('/send', async (req, res) => {
 
   try {
     const result = await sendText(contact.phone, message, contact.wa_chat_id);
-    // Evolution API returns { key: { id: '...' } }; WAHA returned { id: '...' }
-    wa_message_id = result?.key?.id ?? result?.id ?? result?.response?.id?._serialized ?? null;
+    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
   } catch (e) {
     status = 'failed';
     console.error('OpenWA send error:', e.response?.data || e.message);
@@ -54,7 +53,7 @@ router.post('/broadcast', async (req, res) => {
   for (const contact of contacts) {
     try {
       const result = await sendText(contact.phone, message, contact.wa_chat_id);
-      const wa_message_id = result?.key?.id ?? result?.id ?? result?.response?.id?._serialized ?? null;
+      const wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
       db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, 'outbound', ?, ?, 'sent')`).run(contact.id, message, wa_message_id);
       sent++;
     } catch {

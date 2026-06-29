@@ -9,8 +9,6 @@ services:
       DB_PATH: /data/rinran.db
     volumes:
       - crm-data:/data
-    depends_on:
-      - evolution
     networks:
       - rinran
 
@@ -25,62 +23,8 @@ services:
     networks:
       - rinran
 
-  evolution:
-    image: atendai/evolution-api:latest
-    container_name: rinran-evolution
-    restart: unless-stopped
-    ports:
-      - "8081:8080"
-    environment:
-      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8081}
-      AUTHENTICATION_TYPE: apikey
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-rinran-evo-key-change-me}
-      DATABASE_ENABLED: "true"
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: "postgresql://evolution:evolution@postgres:5432/evolution?schema=public"
-      DATABASE_CONNECTION_CLIENT_NAME: evolution_rinran
-      DATABASE_SAVE_DATA_INSTANCE: "true"
-      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
-      DATABASE_SAVE_MESSAGE_UPDATE: "true"
-      DATABASE_SAVE_DATA_CONTACTS: "true"
-      DATABASE_SAVE_DATA_CHATS: "true"
-      DATABASE_SAVE_DATA_LABELS: "true"
-      QRCODE_LIMIT: "30"
-      LOG_LEVEL: WARN,ERROR
-      LOG_COLOR: "false"
-      LOG_BAILEYS: fatal
-      DEL_INSTANCE: "false"
-      LANGUAGE: en
-    volumes:
-      - evolution-data:/evolution/instances
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - rinran
-
-  postgres:
-    image: postgres:16-alpine
-    container_name: rinran-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: evolution
-      POSTGRES_PASSWORD: evolution
-      POSTGRES_DB: evolution
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U evolution"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    networks:
-      - rinran
-
 volumes:
   crm-data:
-  evolution-data:
-  postgres-data:
 
 networks:
   rinran:

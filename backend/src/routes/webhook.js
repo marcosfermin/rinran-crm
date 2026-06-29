@@ -2,56 +2,71 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { fromWaId } = require('../whatsapp');
+const { fromWaId, getContact } = require('../whatsapp');
 
 // GET /webhook — health check
 router.get('/', (req, res) => {
   res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
 });
 
-// POST /webhook — receives events from Evolution API
+async function resolvePhone(rawFrom) {
+  // @lid is a WhatsApp internal Linked Device ID — try to resolve via API
+  if (rawFrom.includes('@lid')) {
+    const info = await getContact(rawFrom);
+    const realUser = info?.id?.user || info?.number || info?.phone;
+    if (realUser) {
+      console.log(`[webhook] Resolved LID ${rawFrom} → +${realUser}`);
+      return '+' + realUser;
+    }
+  }
+  return fromWaId(rawFrom);
+}
+
+// POST /webhook — receives events from WAHA (OpenWA)
 router.post('/', async (req, res) => {
   res.sendStatus(200);
 
   const body = req.body;
-  const event = body?.event || '';
+  const event = body?.event || body?.type || '';
 
-  // Only process incoming message events
-  if (event !== 'messages.upsert') return;
+  if (!event.includes('message')) return;
 
   try {
     const db = getDb();
-    const msgData = body?.data || {};
+    const msgData = body?.data || body;
+    if (!msgData) return;
+    if (msgData.fromMe === true) return;
+    if (msgData.isGroup === true) return;
+    if (msgData.isStatusBroadcast === true) return;
+    if (msgData.mimetype) return;
 
-    if (msgData?.key?.fromMe === true) return;
+    const rawFrom = msgData.from || msgData.chatId || msgData.sender?.id || '';
+    if (!rawFrom) return;
 
-    const remoteJid = msgData?.key?.remoteJid || '';
-    if (!remoteJid) return;
-    if (remoteJid.endsWith('@g.us')) return;
-    if (msgData?.messageType === 'protocolMessage') return;
-    if (msgData?.messageType === 'senderKeyDistributionMessage') return;
-
-    const text = msgData?.message?.conversation
-      || msgData?.message?.extendedTextMessage?.text
-      || msgData?.message?.imageMessage?.caption
-      || '';
+    const text = msgData.body || msgData.content || msgData.text || '';
     if (!text.trim()) return;
 
-    const phone = fromWaId(remoteJid);
+    const phone = await resolvePhone(rawFrom);
     const parsed = parsePhone(phone);
-    const wa_message_id = msgData?.key?.id || null;
-    const senderName = msgData?.pushName || `WhatsApp ${parsed.phone}`;
+    const wa_message_id = msgData.id?._serialized ?? msgData.id ?? null;
+
+    const senderName = msgData.contact?.pushName
+      || msgData.contact?.name
+      || msgData.sender?.pushname
+      || msgData.sender?.name
+      || msgData.notifyName
+      || `WhatsApp ${parsed.phone}`;
 
     let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
     if (!contact) {
       const r = db.prepare(`
         INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id)
         VALUES (?, ?, ?, ?, ?, 'whatsapp', ?)
-      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, remoteJid);
+      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawFrom);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
-      console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
+      console.log(`[webhook] New contact: ${parsed.phone} (${senderName}) chatId=${rawFrom}`);
     } else if (!contact.wa_chat_id) {
-      db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(remoteJid, contact.id);
+      db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(rawFrom, contact.id);
     }
 
     if (wa_message_id) {

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId, configureWebhook } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId } = require('../whatsapp');
 
 const state = { running: false, lastSync: null, imported: { contacts: 0, messages: 0 }, error: null };
 
@@ -14,11 +14,6 @@ router.post('/', async (req, res) => {
   state.error = null;
   state.imported = { contacts: 0, messages: 0 };
   res.json({ ok: true, message: 'Sync started' });
-
-  // Auto-configure webhook so incoming messages flow into the CRM
-  const webhookUrl = process.env.WEBHOOK_URL || `http://backend:4000/webhook`;
-  configureWebhook(webhookUrl).catch(() => {});
-
   runSync().catch(e => {
     state.error = e.message;
     state.running = false;
@@ -28,7 +23,7 @@ router.post('/', async (req, res) => {
 
 async function runSync() {
   const db = getDb();
-  console.log('[sync] Starting Evolution API history sync...');
+  console.log('[sync] Starting WAHA history sync...');
 
   try {
     const chats = await getAllChats();
@@ -57,32 +52,24 @@ async function runSync() {
           db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
         }
 
-        // Fetch historical messages (Evolution persists them in PostgreSQL)
+        // Get messages — WAHA Core returns empty but tries anyway
         const messages = await getChatMessages(chatId);
         let saved = 0;
 
         for (const msg of messages) {
-          // Evolution API message format
-          const text = msg.message?.conversation
-            || msg.message?.extendedTextMessage?.text
-            || msg.message?.imageMessage?.caption
-            || msg.body || '';
+          const text = msg.body || msg.content || msg.text || '';
           if (!text.trim()) continue;
+          if (msg.mimetype) continue;
 
-          // Skip non-text message types
-          const mtype = msg.messageType || '';
-          if (mtype && !['conversation', 'extendedTextMessage', 'imageMessage', ''].includes(mtype)) continue;
-
-          const waId = msg.key?.id || msg.id?._serialized || msg.id;
+          const waId = msg.waMessageId || msg.id?._serialized || msg.id;
           if (!waId) continue;
 
           const dup = db.prepare('SELECT id FROM messages WHERE wa_message_id = ?').get(waId);
           if (dup) continue;
 
-          const direction = (msg.key?.fromMe || msg.fromMe) ? 'outbound' : 'inbound';
-          const rawTs = msg.messageTimestamp || msg.timestamp;
-          const ts = rawTs
-            ? new Date(rawTs * 1000).toISOString().replace('T', ' ').slice(0, 19)
+          const direction = msg.fromMe ? 'outbound' : 'inbound';
+          const ts = msg.timestamp
+            ? new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19)
             : null;
 
           db.prepare(`

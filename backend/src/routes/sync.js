@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, getContact, fromWaId, getSession } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, configureWebhook } = require('../whatsapp');
 
 const state = { running: false, lastSync: null, imported: { contacts: 0, messages: 0 }, error: null };
 
@@ -14,6 +14,11 @@ router.post('/', async (req, res) => {
   state.error = null;
   state.imported = { contacts: 0, messages: 0 };
   res.json({ ok: true, message: 'Sync started' });
+
+  // Auto-configure webhook so incoming messages flow into the CRM
+  const webhookUrl = process.env.WEBHOOK_URL || `http://backend:4000/webhook`;
+  configureWebhook(webhookUrl).catch(() => {});
+
   runSync().catch(e => {
     state.error = e.message;
     state.running = false;
@@ -21,20 +26,9 @@ router.post('/', async (req, res) => {
   });
 });
 
-async function resolvePhone(chatId) {
-  if (chatId.includes('@lid')) {
-    try {
-      const info = await getContact(chatId);
-      const num = info?.id?.user || info?.number || info?.phone;
-      if (num) return { phone: '+' + num, resolved: true };
-    } catch {}
-  }
-  return { phone: fromWaId(chatId), resolved: false };
-}
-
 async function runSync() {
   const db = getDb();
-  console.log('[sync] Starting WAHA history sync...');
+  console.log('[sync] Starting Evolution API history sync...');
 
   try {
     const chats = await getAllChats();
@@ -46,7 +40,7 @@ async function runSync() {
         const chatId = chat.id;
         if (!chatId) continue;
 
-        const { phone } = await resolvePhone(chatId);
+        const phone = fromWaId(chatId);
         const parsed = parsePhone(phone);
         const name = chat.name || parsed.phone;
 
@@ -63,24 +57,32 @@ async function runSync() {
           db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
         }
 
-        // Get messages for this chat
+        // Fetch historical messages (Evolution persists them in PostgreSQL)
         const messages = await getChatMessages(chatId);
         let saved = 0;
 
         for (const msg of messages) {
-          const text = msg.body || msg.content || msg.text || '';
+          // Evolution API message format
+          const text = msg.message?.conversation
+            || msg.message?.extendedTextMessage?.text
+            || msg.message?.imageMessage?.caption
+            || msg.body || '';
           if (!text.trim()) continue;
-          if (msg.mimetype) continue;
 
-          const waId = msg.waMessageId || msg.id?._serialized || msg.id;
+          // Skip non-text message types
+          const mtype = msg.messageType || '';
+          if (mtype && !['conversation', 'extendedTextMessage', 'imageMessage', ''].includes(mtype)) continue;
+
+          const waId = msg.key?.id || msg.id?._serialized || msg.id;
           if (!waId) continue;
 
           const dup = db.prepare('SELECT id FROM messages WHERE wa_message_id = ?').get(waId);
           if (dup) continue;
 
-          const direction = msg.fromMe ? 'outbound' : 'inbound';
-          const ts = msg.timestamp
-            ? new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19)
+          const direction = (msg.key?.fromMe || msg.fromMe) ? 'outbound' : 'inbound';
+          const rawTs = msg.messageTimestamp || msg.timestamp;
+          const ts = rawTs
+            ? new Date(rawTs * 1000).toISOString().replace('T', ' ').slice(0, 19)
             : null;
 
           db.prepare(`
@@ -92,8 +94,8 @@ async function runSync() {
           saved++;
         }
 
-        if (saved > 0 || state.imported.contacts % 5 === 0) {
-          console.log(`[sync] ${parsed.phone} (${name}): ${saved} messages imported`);
+        if (saved > 0) {
+          console.log(`[sync] ${parsed.phone} (${name}): ${saved} messages`);
         }
       } catch (e) {
         console.error('[sync] Error on chat:', e.message);

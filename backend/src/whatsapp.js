@@ -1,113 +1,153 @@
 const axios = require('axios');
 
-const base = () => process.env.OPENWA_URL?.replace(/\/$/, '');
+const base = () => process.env.EVOLUTION_URL?.replace(/\/$/, '');
 
 function headers() {
-  const key = process.env.OPENWA_API_KEY;
+  const key = process.env.EVOLUTION_API_KEY;
   const h = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (key) h['Authorization'] = `Bearer ${key}`;
+  if (key) h['apikey'] = key;
   return h;
 }
 
-// Cache the active WAHA session
-let _session = null;
-async function getSession() {
-  if (_session) return _session;
-  const res = await axios.get(`${base()}/api/sessions`, { headers: headers(), timeout: 10000 });
+// Cache the active Evolution instance name
+let _instance = null;
+async function getInstance() {
+  if (_instance) return _instance;
+  const name = process.env.EVOLUTION_INSTANCE;
+  if (name) { _instance = name; return _instance; }
+  const res = await axios.get(`${base()}/instance/fetchInstances`, { headers: headers(), timeout: 10000 });
   const list = Array.isArray(res.data) ? res.data : [];
-  _session = list.find(s => s.status === 'ready') || list[0] || null;
-  return _session;
+  const active = list.find(i => (i.instance?.state || i.connectionStatus) === 'open') || list[0];
+  _instance = active?.instance?.instanceName || active?.instanceName || null;
+  return _instance;
 }
+
+// Reset cached instance (call after disconnect/reconnect)
+function resetInstance() { _instance = null; }
 
 // Phone ↔ WhatsApp ID helpers
 function toWaId(phone) {
-  return phone.replace(/^\+/, '').replace(/\s+/g, '') + '@c.us';
+  return phone.replace(/^\+/, '').replace(/\D/g, '');
 }
 
-function fromWaId(waId) {
-  return '+' + waId
-    .replace(/@c\.us$/, '')
+function fromWaId(remoteJid) {
+  return '+' + remoteJid
     .replace(/@s\.whatsapp\.net$/, '')
+    .replace(/@c\.us$/, '')
+    .replace(/@g\.us$/, '')
     .replace(/@lid$/, '')
-    .replace(/\s+/g, '');
+    .replace(/\D/g, '');
 }
 
-// Send a text message — uses WAHA REST format
+// Send a text message via Evolution API
 async function sendText(phone, text, waChatId) {
-  const session = await getSession();
-  // Prefer the stored waChatId (handles @lid contacts correctly)
-  const chatId = waChatId || toWaId(phone);
-  const res = await axios.post(`${base()}/api/sendText`, {
-    chatId,
-    text,
-    session: session?.name || 'default',
-  }, { headers: headers() });
+  const instance = await getInstance();
+  // Evolution API expects bare number (no @suffix)
+  const number = waChatId
+    ? waChatId.replace(/@s\.whatsapp\.net$/, '').replace(/@c\.us$/, '').replace(/@lid$/, '')
+    : toWaId(phone);
+  const res = await axios.post(`${base()}/message/sendText/${instance}`,
+    { number, text },
+    { headers: headers() }
+  );
   return res.data;
 }
 
 // Get connection state
 async function getStatus() {
   try {
-    await axios.get(`${base()}/api/health`, { headers: headers(), timeout: 5000 });
-    const session = await getSession().catch(() => null);
-    return { connected: session?.status === 'ready', state: session?.status || 'unknown' };
+    const instance = await getInstance().catch(() => null);
+    if (!instance) return { connected: false, state: 'no_instance' };
+    const res = await axios.get(`${base()}/instance/connectionState/${instance}`, {
+      headers: headers(), timeout: 5000
+    });
+    const state = res.data?.instance?.state || res.data?.state;
+    return { connected: state === 'open', state: state || 'unknown' };
   } catch {
     return { connected: false, state: null };
   }
 }
 
-// Resolve a contact ID to full info (phone number, name)
-async function getContact(contactId) {
+// Get contact info (to resolve phone numbers)
+async function getContact(remoteJid) {
   try {
-    const session = await getSession();
-    const sessionKey = session.name || session.id;
-    const res = await axios.get(
-      `${base()}/api/sessions/${sessionKey}/contacts/${encodeURIComponent(contactId)}`,
-      { headers: headers(), timeout: 8000 }
-    );
-    return res.data;
+    const instance = await getInstance();
+    const res = await axios.get(`${base()}/contact/findContacts/${instance}`, {
+      headers: headers(), timeout: 8000,
+      params: { where: JSON.stringify({ remoteJid }) },
+    });
+    const list = Array.isArray(res.data) ? res.data : [];
+    return list[0] || null;
   } catch {
     return null;
   }
 }
 
-// Get all individual chats
+// Get all chats — normalizes to { id, name, isGroup }
 async function getAllChats() {
   try {
-    const session = await getSession();
-    if (!session) return [];
-    const sessionKey = session.name || session.id;
-    const res = await axios.get(
-      `${base()}/api/sessions/${sessionKey}/chats`,
-      { headers: headers(), timeout: 30000 }
-    );
-    return Array.isArray(res.data) ? res.data : [];
+    const instance = await getInstance();
+    if (!instance) return [];
+    const res = await axios.post(`${base()}/chat/findChats/${instance}`, {}, {
+      headers: headers(), timeout: 30000
+    });
+    const data = Array.isArray(res.data) ? res.data : [];
+    return data.map(c => ({
+      id: c.remoteJid || c.id,
+      name: c.name || c.pushName || '',
+      isGroup: (c.remoteJid || c.id || '').endsWith('@g.us'),
+    }));
   } catch (e) {
-    console.error('[openwa] getAllChats error:', e.message);
+    console.error('[evolution] getAllChats error:', e.message);
     return [];
   }
 }
 
-// Get messages for a specific chat — WAHA Core stores messages transiently;
-// use session name (not UUID) and chatId query param, not /chats/{id}/messages path
+// Get messages for a chat — Evolution persists them in PostgreSQL
 async function getChatMessages(chatId, limit = 500) {
   try {
-    const session = await getSession();
-    if (!session) return [];
-    const res = await axios.get(
-      `${base()}/api/sessions/${session.name}/messages`,
-      { headers: headers(), timeout: 30000, params: { chatId, limit } }
-    );
+    const instance = await getInstance();
+    if (!instance) return [];
+    const res = await axios.post(`${base()}/chat/findMessages/${instance}`, {
+      where: { key: { remoteJid: chatId } },
+      limit,
+    }, { headers: headers(), timeout: 30000 });
     const d = res.data;
-    if (Array.isArray(d)) return d;
-    if (Array.isArray(d?.messages)) return d.messages;
-    return [];
+    // Evolution wraps in { messages: { records: [...] } } or { messages: [...] }
+    return d?.messages?.records || d?.messages || (Array.isArray(d) ? d : []);
   } catch (e) {
     if (e.response?.status !== 404) {
-      console.error(`[openwa] getChatMessages(${chatId}) error:`, e.message);
+      console.error(`[evolution] getChatMessages(${chatId}) error:`, e.message);
     }
     return [];
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages, getSession };
+// Configure Evolution API to send webhooks to this CRM
+async function configureWebhook(webhookUrl) {
+  try {
+    const instance = await getInstance();
+    if (!instance) return false;
+    await axios.post(`${base()}/webhook/set/${instance}`, {
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        webhookByEvents: false,
+        webhookBase64: false,
+        events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE'],
+      }
+    }, { headers: headers(), timeout: 10000 });
+    console.log(`[evolution] Webhook configured → ${webhookUrl}`);
+    return true;
+  } catch (e) {
+    console.error('[evolution] configureWebhook error:', e.message);
+    return false;
+  }
+}
+
+module.exports = {
+  sendText, getStatus, toWaId, fromWaId, getContact,
+  getAllChats, getChatMessages, getInstance, resetInstance, configureWebhook,
+  // alias for backward compat with any code that calls getSession
+  getSession: getInstance,
+};

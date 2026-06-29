@@ -9,6 +9,8 @@ services:
       DB_PATH: /data/rinran.db
     volumes:
       - crm-data:/data
+    depends_on:
+      - waha
     networks:
       - rinran
 
@@ -23,8 +25,26 @@ services:
     networks:
       - rinran
 
+  waha:
+    image: devlikeapro/waha-plus
+    container_name: rinran-waha
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      WHATSAPP_API_KEY: ${WAHA_API_KEY:-rinran-waha-key-change-me}
+      WHATSAPP_API_PLUS_LICENCE_KEY: ${WAHA_LICENCE_KEY:-}
+      WHATSAPP_HOOK_URL: http://backend:4000/webhook
+      WHATSAPP_HOOK_EVENTS: message
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+    volumes:
+      - waha-data:/app/.sessions
+    networks:
+      - rinran
+
 volumes:
   crm-data:
+  waha-data:
 
 networks:
   rinran:

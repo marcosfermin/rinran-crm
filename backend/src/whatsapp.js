@@ -88,15 +88,15 @@ async function getAllChats() {
   }
 }
 
-// Get messages for a chat
-// WAHA Core stores messages transiently; uses session name + chatId query param
+// Get messages for a chat — WAHA Plus persists history per chat
 async function getChatMessages(chatId, limit = 500) {
   try {
     const session = await getSession();
     if (!session) return [];
+    const sessionKey = session.name || session.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${session.name}/messages`,
-      { headers: headers(), timeout: 30000, params: { chatId, limit } }
+      `${base()}/api/sessions/${sessionKey}/chats/${encodeURIComponent(chatId)}/messages`,
+      { headers: headers(), timeout: 30000, params: { limit } }
     );
     const d = res.data;
     if (Array.isArray(d)) return d;

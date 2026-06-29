@@ -4,8 +4,12 @@ const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
 const { fromWaId } = require('../whatsapp');
 
+// GET /webhook — health check (browsers and some webhook systems verify with GET)
+router.get('/', (req, res) => {
+  res.json({ ok: true, endpoint: 'Rinran CRM webhook — POST only' });
+});
+
 // POST /webhook — receives events from OpenWA server
-// Configure in OpenWA: middleware.webhook = "http://your-crm/webhook"
 router.post('/', (req, res) => {
   const db = getDb();
   res.sendStatus(200); // Acknowledge immediately

@@ -60,8 +60,9 @@ async function getStatus() {
 async function getContact(contactId) {
   try {
     const session = await getSession();
+    const sessionKey = session.name || session.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${session.id}/contacts/${encodeURIComponent(contactId)}`,
+      `${base()}/api/sessions/${sessionKey}/contacts/${encodeURIComponent(contactId)}`,
       { headers: headers(), timeout: 8000 }
     );
     return res.data;
@@ -75,8 +76,9 @@ async function getAllChats() {
   try {
     const session = await getSession();
     if (!session) return [];
+    const sessionKey = session.name || session.id;
     const res = await axios.get(
-      `${base()}/api/sessions/${session.id}/chats`,
+      `${base()}/api/sessions/${sessionKey}/chats`,
       { headers: headers(), timeout: 30000 }
     );
     return Array.isArray(res.data) ? res.data : [];
@@ -86,21 +88,24 @@ async function getAllChats() {
   }
 }
 
-// Get messages for a specific chat
+// Get messages for a specific chat — WAHA Core stores messages transiently;
+// use session name (not UUID) and chatId query param, not /chats/{id}/messages path
 async function getChatMessages(chatId, limit = 500) {
   try {
     const session = await getSession();
     if (!session) return [];
     const res = await axios.get(
-      `${base()}/api/sessions/${session.id}/chats/${encodeURIComponent(chatId)}/messages`,
-      { headers: headers(), timeout: 30000, params: { limit } }
+      `${base()}/api/sessions/${session.name}/messages`,
+      { headers: headers(), timeout: 30000, params: { chatId, limit } }
     );
     const d = res.data;
     if (Array.isArray(d)) return d;
     if (Array.isArray(d?.messages)) return d.messages;
     return [];
   } catch (e) {
-    console.error(`[openwa] getChatMessages(${chatId}) error:`, e.message);
+    if (e.response?.status !== 404) {
+      console.error(`[openwa] getChatMessages(${chatId}) error:`, e.message);
+    }
     return [];
   }
 }

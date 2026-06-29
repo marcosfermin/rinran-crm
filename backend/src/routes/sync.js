@@ -1,10 +1,51 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
 const { getAllChats, getChatMessages, getContact, fromWaId } = require('../whatsapp');
 
 const state = { running: false, lastSync: null, imported: { contacts: 0, messages: 0 }, error: null };
+
+// GET /api/sync/discover — probe OpenWA to find available API endpoints
+router.get('/discover', async (req, res) => {
+  const base = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://localhost:8080';
+  const key = process.env.OPENWA_API_KEY;
+  const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+  if (key) headers['Authorization'] = `Bearer ${key}`;
+
+  const probes = [
+    { method: 'GET',  path: '/api/chats' },
+    { method: 'GET',  path: '/chats' },
+    { method: 'GET',  path: '/v1/chats' },
+    { method: 'GET',  path: '/api/v1/chats' },
+    { method: 'POST', path: '/getChats' },
+    { method: 'GET',  path: '/getChats' },
+    { method: 'GET',  path: '/api/messages' },
+    { method: 'GET',  path: '/api' },
+    { method: 'GET',  path: '/docs' },
+    { method: 'GET',  path: '/swagger' },
+    { method: 'GET',  path: '/openapi.json' },
+    { method: 'GET',  path: '/api/health' },
+    { method: 'GET',  path: '/health' },
+  ];
+
+  const results = [];
+  for (const { method, path } of probes) {
+    try {
+      const r = await axios({ method, url: base + path, headers, timeout: 4000 });
+      const isJson = r.headers['content-type']?.includes('json');
+      results.push({ path, method, status: r.status, json: isJson, preview: isJson ? JSON.stringify(r.data).slice(0, 120) : '(html)' });
+    } catch (e) {
+      results.push({ path, method, status: e.response?.status || 'ERR', error: e.message.slice(0, 60) });
+    }
+  }
+
+  console.log('[discover] OpenWA API probe results:');
+  results.forEach(r => console.log(` ${r.method} ${r.path} → ${r.status}${r.preview ? ' ' + r.preview : ''}`));
+
+  res.json({ openwa_url: base, results });
+});
 
 // GET /api/sync — current sync status
 router.get('/', (req, res) => res.json(state));

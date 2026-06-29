@@ -110,7 +110,7 @@ async function getChatMessages(chatId, limit = 500) {
   }
 }
 
-// Configure webhook for the active session (persists in WAHA store)
+// Configure webhook + NOWEB store for the active session
 async function configureWebhook(webhookUrl) {
   try {
     const session = await getSession();
@@ -119,9 +119,10 @@ async function configureWebhook(webhookUrl) {
     await axios.put(`${base()}/api/sessions/${sessionKey}`, {
       config: {
         webhooks: [{ url: webhookUrl, events: ['message'], enabled: true }],
+        noweb: { store: { enabled: true, fullSync: true } },
       }
     }, { headers: headers(), timeout: 10000 });
-    console.log(`[waha] Webhook configured → ${webhookUrl}`);
+    console.log(`[waha] Webhook + store configured → ${webhookUrl}`);
     return true;
   } catch (e) {
     console.error('[waha] configureWebhook error:', e.message);

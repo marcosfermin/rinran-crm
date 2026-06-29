@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Trash2, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 export default function Contacts() {
   const navigate = useNavigate();
@@ -18,25 +19,25 @@ export default function Contacts() {
     const params = new URLSearchParams({ page, limit });
     if (search) params.set('search', search);
     if (categoryFilter) params.set('category_id', categoryFilter);
-    fetch(`/api/contacts?${params}`)
-      .then(r => r.json())
-      .then(d => { setContacts(d.contacts); setTotal(d.total); });
+    apiFetch(`/api/contacts?${params}`)
+      .then(r => r?.json())
+      .then(d => d && (setContacts(d.contacts ?? []), setTotal(d.total ?? 0)));
   }, [search, categoryFilter, page]);
 
   useEffect(() => {
-    fetch('/api/categories').then(r => r.json()).then(setCategories);
+    apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   async function addContact(e) {
     e.preventDefault();
-    const res = await fetch('/api/contacts', {
+    const res = await apiFetch('/api/contacts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     });
-    if (res.ok) {
+    if (res?.ok) {
       setShowAdd(false);
       setForm({ name: '', phone: '', category_id: '', notes: '' });
       load();
@@ -46,7 +47,7 @@ export default function Contacts() {
   async function deleteContact(id, e) {
     e.stopPropagation();
     if (!confirm('¿Eliminar contacto?')) return;
-    await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/contacts/${id}`, { method: 'DELETE' });
     load();
   }
 
@@ -88,106 +89,103 @@ export default function Contacts() {
         </select>
       </div>
 
-      {/* Mobile: card list / Desktop: table */}
-      <>
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-2">
-          {contacts.map(c => (
-            <div
-              key={c.id}
-              onClick={() => navigate(`/contacts/${c.id}`)}
-              className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:bg-gray-800"
-            >
-              <div className="text-2xl shrink-0">{c.country_flag || '🏳️'}</div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{c.name}</p>
-                <p className="text-xs text-gray-500 font-mono truncate">{c.phone}</p>
-                {c.category_name && (
-                  <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{ backgroundColor: c.category_color + '22', color: c.category_color }}>
-                    {c.category_name}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={e => { e.stopPropagation(); navigate(`/contacts/${c.id}`); }}
-                  className="p-2 text-green-500 hover:bg-green-500/10 rounded-lg"
-                >
-                  <MessageCircle size={16} />
-                </button>
-                <button
-                  onClick={e => deleteContact(c.id, e)}
-                  className="p-2 text-gray-600 hover:text-red-400 rounded-lg"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-          {!contacts.length && (
-            <p className="text-center text-gray-600 py-10 text-sm">Sin contactos</p>
-          )}
-        </div>
-
-        {/* Desktop table */}
-        <div className="hidden md:block bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wide">
-                <th className="text-left px-4 py-3">Contacto</th>
-                <th className="text-left px-4 py-3">Teléfono</th>
-                <th className="text-left px-4 py-3">País</th>
-                <th className="text-left px-4 py-3">Categoría</th>
-                <th className="text-left px-4 py-3">Fuente</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {contacts.map(c => (
-                <tr
-                  key={c.id}
-                  onClick={() => navigate(`/contacts/${c.id}`)}
-                  className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors"
-                >
-                  <td className="px-4 py-3 font-medium text-white">{c.name}</td>
-                  <td className="px-4 py-3 text-gray-400 font-mono">{c.phone}</td>
-                  <td className="px-4 py-3">
-                    <span title={c.country_name} className="text-xl">{c.country_flag || '🏳️'}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {c.category_name
-                      ? <span className="px-2 py-0.5 rounded-full text-xs font-medium"
-                          style={{ backgroundColor: c.category_color + '33', color: c.category_color }}>
-                          {c.category_name}
-                        </span>
-                      : <span className="text-gray-600">—</span>
-                    }
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs ${
-                      c.source === 'whatsapp' ? 'bg-green-900/40 text-green-400' : 'bg-gray-800 text-gray-400'
-                    }`}>
-                      {c.source}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={e => deleteContact(c.id, e)}
-                      className="text-gray-600 hover:text-red-400 transition-colors p-1"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!contacts.length && (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-600">Sin contactos</td></tr>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-2">
+        {contacts.map(c => (
+          <div
+            key={c.id}
+            onClick={() => navigate(`/contacts/${c.id}`)}
+            className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:bg-gray-800"
+          >
+            <div className="text-2xl shrink-0">{c.country_flag || '🏳️'}</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate">{c.name}</p>
+              <p className="text-xs text-gray-500 font-mono truncate">{c.phone}</p>
+              {c.category_name && (
+                <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                  style={{ backgroundColor: c.category_color + '22', color: c.category_color }}>
+                  {c.category_name}
+                </span>
               )}
-            </tbody>
-          </table>
-        </div>
-      </>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={e => { e.stopPropagation(); navigate(`/contacts/${c.id}`); }}
+                className="p-2 text-green-500 hover:bg-green-500/10 rounded-lg"
+              >
+                <MessageCircle size={16} />
+              </button>
+              <button
+                onClick={e => deleteContact(c.id, e)}
+                className="p-2 text-gray-600 hover:text-red-400 rounded-lg"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {!contacts.length && (
+          <p className="text-center text-gray-600 py-10 text-sm">Sin contactos</p>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wide">
+              <th className="text-left px-4 py-3">Contacto</th>
+              <th className="text-left px-4 py-3">Teléfono</th>
+              <th className="text-left px-4 py-3">País</th>
+              <th className="text-left px-4 py-3">Categoría</th>
+              <th className="text-left px-4 py-3">Fuente</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {contacts.map(c => (
+              <tr
+                key={c.id}
+                onClick={() => navigate(`/contacts/${c.id}`)}
+                className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors"
+              >
+                <td className="px-4 py-3 font-medium text-white">{c.name}</td>
+                <td className="px-4 py-3 text-gray-400 font-mono">{c.phone}</td>
+                <td className="px-4 py-3">
+                  <span title={c.country_name} className="text-xl">{c.country_flag || '🏳️'}</span>
+                </td>
+                <td className="px-4 py-3">
+                  {c.category_name
+                    ? <span className="px-2 py-0.5 rounded-full text-xs font-medium"
+                        style={{ backgroundColor: c.category_color + '33', color: c.category_color }}>
+                        {c.category_name}
+                      </span>
+                    : <span className="text-gray-600">—</span>
+                  }
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded text-xs ${
+                    c.source === 'whatsapp' ? 'bg-green-900/40 text-green-400' : 'bg-gray-800 text-gray-400'
+                  }`}>
+                    {c.source}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={e => deleteContact(c.id, e)}
+                    className="text-gray-600 hover:text-red-400 transition-colors p-1"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {!contacts.length && (
+              <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-600">Sin contactos</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* Pagination */}
       {pages > 1 && (

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Send, Users, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Send, Users, CheckCircle, Clock } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 export default function Broadcast() {
   const [categories, setCategories] = useState([]);
@@ -10,19 +11,20 @@ export default function Broadcast() {
   const [success, setSuccess] = useState(null);
 
   useEffect(() => {
-    fetch('/api/categories').then(r => r.json()).then(setCategories);
+    apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
     loadBroadcasts();
   }, []);
 
   function loadBroadcasts() {
-    fetch('/api/messages/broadcasts').then(r => r.json()).then(setBroadcasts);
+    apiFetch('/api/messages/broadcasts').then(r => r?.json()).then(d => d && setBroadcasts(Array.isArray(d) ? d : []));
   }
 
   async function previewCount() {
     const params = new URLSearchParams({ limit: 999 });
     if (form.category_id) params.set('category_id', form.category_id);
-    const d = await fetch(`/api/contacts?${params}`).then(r => r.json());
-    setPreview(d.total);
+    const r = await apiFetch(`/api/contacts?${params}`);
+    const d = await r?.json();
+    if (d) setPreview(d.total ?? 0);
   }
 
   useEffect(() => { previewCount(); }, [form.category_id]);
@@ -32,7 +34,7 @@ export default function Broadcast() {
     if (!form.message.trim()) return;
     if (!confirm(`¿Enviar a ${preview} contactos?`)) return;
     setSending(true);
-    const res = await fetch('/api/messages/broadcast', {
+    const r = await apiFetch('/api/messages/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -40,8 +42,9 @@ export default function Broadcast() {
         message: form.message,
         category_id: form.category_id || null,
       }),
-    }).then(r => r.json());
-    setSuccess(`Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
+    });
+    const res = await r?.json();
+    if (res) setSuccess(`Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
     setForm({ name: '', message: '', category_id: '' });
     setSending(false);
     setTimeout(() => { setSuccess(null); loadBroadcasts(); }, 3000);
@@ -49,8 +52,7 @@ export default function Broadcast() {
 
   function statusIcon(s) {
     if (s === 'completed') return <CheckCircle size={14} className="text-green-400" />;
-    if (s === 'sending') return <Clock size={14} className="text-yellow-400" />;
-    return <Clock size={14} className="text-gray-400" />;
+    return <Clock size={14} className={s === 'sending' ? 'text-yellow-400' : 'text-gray-400'} />;
   }
 
   return (
@@ -129,7 +131,7 @@ export default function Broadcast() {
                     <p className="text-sm font-medium text-white">{b.name}</p>
                     <p className="text-xs text-gray-500">{new Date(b.created_at).toLocaleString('es')}</p>
                   </div>
-                  <div className="flex items-center gap-1">{statusIcon(b.status)}<span className="text-xs text-gray-400">{b.status}</span></div>
+                  <div className="flex items-center gap-1">{statusIcon(b.status)}<span className="text-xs text-gray-400 ml-1">{b.status}</span></div>
                 </div>
                 <p className="text-xs text-gray-400 truncate mb-2">{b.message}</p>
                 <div className="flex gap-4 text-xs">

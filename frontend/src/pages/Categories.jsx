@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 const COLORS = ['#22c55e','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#6b7280'];
 
@@ -10,14 +11,14 @@ export default function Categories() {
   const [editing, setEditing] = useState(null);
 
   function load() {
-    fetch('/api/categories').then(r => r.json()).then(setCategories);
+    apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
   }
 
   useEffect(() => { load(); }, []);
 
   async function add(e) {
     e.preventDefault();
-    await fetch('/api/categories', {
+    await apiFetch('/api/categories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
@@ -28,7 +29,7 @@ export default function Categories() {
   }
 
   async function save(id) {
-    await fetch(`/api/categories/${id}`, {
+    await apiFetch(`/api/categories/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editing),
@@ -39,7 +40,7 @@ export default function Categories() {
 
   async function del(id) {
     if (!confirm('¿Eliminar categoría? Los contactos quedarán sin categoría.')) return;
-    await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/categories/${id}`, { method: 'DELETE' });
     load();
   }
 

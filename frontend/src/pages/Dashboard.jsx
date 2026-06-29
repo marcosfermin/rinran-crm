@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Users, MessageSquare, TrendingUp, Bell } from 'lucide-react';
+import { apiFetch } from '../utils/apiFetch.js';
 
 function StatCard({ icon: Icon, label, value, sub, color }) {
   return (
@@ -22,7 +23,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    fetch('/api/stats').then(r => r.json()).then(setStats).catch(() => {});
+    apiFetch('/api/stats').then(r => r?.json()).then(d => d && setStats(d)).catch(() => {});
   }, []);
 
   return (

@@ -15,7 +15,7 @@ async function getSession() {
   if (_session) return _session;
   const res = await axios.get(`${base()}/api/sessions`, { headers: headers(), timeout: 10000 });
   const list = Array.isArray(res.data) ? res.data : [];
-  _session = list.find(s => s.status === 'ready') || list[0] || null;
+  _session = list.find(s => s.status === 'WORKING' || s.status === 'ready') || list[0] || null;
   return _session;
 }
 
@@ -50,7 +50,7 @@ async function sendText(phone, text, waChatId) {
 async function getStatus() {
   try {
     const session = await getSession().catch(() => null);
-    return { connected: session?.status === 'ready', state: session?.status || 'unknown' };
+    return { connected: session?.status === 'WORKING' || session?.status === 'ready', state: session?.status || 'unknown' };
   } catch {
     return { connected: false, state: null };
   }

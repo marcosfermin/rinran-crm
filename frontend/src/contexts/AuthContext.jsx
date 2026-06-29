@@ -9,14 +9,19 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!token) { setChecking(false); return; }
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => setUser(data.user))
       .catch(() => {
         localStorage.removeItem('rinran_token');
         setToken(null);
       })
-      .finally(() => setChecking(false));
+      .finally(() => { clearTimeout(timeout); setChecking(false); });
   }, [token]);
 
   const login = (newToken, newUser) => {

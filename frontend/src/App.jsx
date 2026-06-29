@@ -119,8 +119,9 @@ export default function App() {
 
   if (checking) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-gray-600 text-sm animate-pulse">Cargando...</div>
+      <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-3">
+        <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+        <div className="text-gray-400 text-sm">Cargando...</div>
       </div>
     );
   }

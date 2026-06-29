@@ -2,7 +2,17 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId, configureWebhook } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact } = require('../whatsapp');
+
+const MEDIA_LABELS = {
+  image: '[Foto]',
+  video: '[Video]',
+  audio: '[Audio]',
+  voice: '[Audio]',
+  ptt: '[Audio]',
+  document: '[Archivo]',
+  sticker: '[Sticker]',
+};
 
 const state = { running: false, lastSync: null, imported: { contacts: 0, messages: 0 }, error: null };
 
@@ -23,6 +33,19 @@ router.post('/', async (req, res) => {
   });
 });
 
+// Resolve any chatId (including @lid) to a clean phone string like "+19296507660"
+async function resolvePhone(chatId) {
+  if (chatId.endsWith('@lid')) {
+    const real = await resolveLid(chatId);
+    if (real) return real;
+    // Fallback: try contacts API
+    const info = await getContact(chatId);
+    if (info?.number) return '+' + info.number;
+    if (info?.id?.user) return '+' + info.id.user;
+  }
+  return fromWaId(chatId);
+}
+
 async function runSync() {
   const db = getDb();
   console.log('[sync] Starting WAHA history sync...');
@@ -37,12 +60,25 @@ async function runSync() {
         const chatId = chat.id;
         if (!chatId) continue;
 
-        const phone = fromWaId(chatId);
+        const phone = await resolvePhone(chatId);
         const parsed = parsePhone(phone);
         const name = chat.name || parsed.phone;
 
-        // Upsert contact
+        // Look up contact by real phone first, then fall back to wa_chat_id
+        // (catches existing contacts that were stored with LID-based phone numbers)
         let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
+
+        if (!contact) {
+          contact = db.prepare('SELECT * FROM contacts WHERE wa_chat_id = ?').get(chatId);
+          if (contact) {
+            // Update stale LID-based phone to the real phone number
+            db.prepare('UPDATE contacts SET phone = ?, country_code = ?, country_flag = ?, country_name = ? WHERE id = ?')
+              .run(parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, contact.id);
+            contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact.id);
+            console.log(`[sync] Updated LID contact → ${parsed.phone} (${name})`);
+          }
+        }
+
         if (!contact) {
           const r = db.prepare(`
             INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id)
@@ -54,14 +90,16 @@ async function runSync() {
           db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
         }
 
-        // Get messages — WAHA Core returns empty but tries anyway
         const messages = await getChatMessages(chatId);
         let saved = 0;
 
         for (const msg of messages) {
-          const text = msg.body || msg.content || msg.text || '';
-          if (!text.trim()) continue;
-          if (msg.mimetype) continue;
+          let text = msg.body || msg.content || msg.text || '';
+
+          if (!text.trim()) {
+            if (!msg.hasMedia) continue;
+            text = MEDIA_LABELS[msg.type] || '[Archivo]';
+          }
 
           const waId = msg.waMessageId || msg.id?._serialized || msg.id;
           if (!waId) continue;

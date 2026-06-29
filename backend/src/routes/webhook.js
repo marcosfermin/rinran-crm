@@ -30,10 +30,13 @@ router.post('/', async (req, res) => {
     if (!rawFrom) return;
     if (rawFrom.endsWith('@g.us')) return;
     if (msgData.isStatusBroadcast === true) return;
-    if (msgData.hasMedia === true && !msgData.body) return;
 
-    const text = msgData.body || msgData.content || msgData.text || '';
-    if (!text.trim()) return;
+    const MEDIA_LABELS = { image: '[Foto]', video: '[Video]', audio: '[Audio]', voice: '[Audio]', ptt: '[Audio]', document: '[Archivo]', sticker: '[Sticker]' };
+    let text = msgData.body || msgData.content || msgData.text || '';
+    if (!text.trim()) {
+      if (!msgData.hasMedia) return;
+      text = MEDIA_LABELS[msgData.type] || '[Archivo]';
+    }
 
     const phone = fromWaId(rawFrom);
     const parsed = parsePhone(phone);

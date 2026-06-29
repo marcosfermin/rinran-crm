@@ -56,17 +56,42 @@ async function getStatus() {
   }
 }
 
-// Get contact info
+// Get contact info — WAHA Community: GET /api/contacts?contactId=&session=
 async function getContact(contactId) {
   try {
     const session = await getSession();
     const sessionKey = session?.name || session?.id;
     const res = await axios.get(
-      `${base()}/api/${sessionKey}/contacts/${encodeURIComponent(contactId)}`,
-      { headers: headers(), timeout: 8000 }
+      `${base()}/api/contacts`,
+      { headers: headers(), timeout: 8000, params: { contactId, session: sessionKey } }
     );
     return res.data;
   } catch {
+    return null;
+  }
+}
+
+// Resolve a @lid chatId to a real phone number string like "+19296507660"
+async function resolveLid(chatId) {
+  try {
+    const session = await getSession();
+    if (!session) return null;
+    const sessionKey = session.name || session.id;
+    const lidNumber = chatId.replace(/@lid$/, '');
+    const res = await axios.get(
+      `${base()}/api/${sessionKey}/lids/${encodeURIComponent(lidNumber)}`,
+      { headers: headers(), timeout: 8000 }
+    );
+    const d = res.data;
+    // Response may be { phoneNumber: "19296507660" } or { pn: "19296507660@s.whatsapp.net" }
+    if (d?.phoneNumber) return '+' + d.phoneNumber;
+    if (d?.pn) return fromWaId(d.pn);
+    if (d?.number) return '+' + String(d.number).replace(/^\+/, '');
+    return null;
+  } catch (e) {
+    if (e.response?.status !== 404) {
+      console.error(`[waha] resolveLid(${chatId}) error:`, e.message);
+    }
     return null;
   }
 }
@@ -130,4 +155,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };
+module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };

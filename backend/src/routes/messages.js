@@ -243,21 +243,24 @@ async function fireBroadcast(db, broadcastId) {
       const chatId = contact.wa_chat_id || toWaId(contact.phone);
       let wa_message_id = null;
 
+      const interpolate = txt => (txt || '').replace(/\{\{nombre\}\}/g, contact.name || contact.phone);
       if (broadcast.media_url) {
         const waUrl = `${BACKEND_INTERNAL}${broadcast.media_url}`;
+        const caption = interpolate(broadcast.message);
         const result = await sendFile(chatId, {
           url: waUrl, filename: broadcast.media_filename, mimetype: broadcast.media_type,
-          caption: broadcast.message || undefined,
+          caption: caption || undefined,
         });
         wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
         db.prepare(`
           INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename)
           VALUES (?, 'outbound', ?, ?, 'sent', ?, ?, ?)
-        `).run(contact.id, broadcast.message || broadcast.media_filename, wa_message_id, broadcast.media_url, broadcast.media_type, broadcast.media_filename);
+        `).run(contact.id, caption || broadcast.media_filename, wa_message_id, broadcast.media_url, broadcast.media_type, broadcast.media_filename);
       } else {
-        const result = await sendText(contact.phone, broadcast.message, contact.wa_chat_id);
+        const text = interpolate(broadcast.message);
+        const result = await sendText(contact.phone, text, contact.wa_chat_id);
         wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
-        db.prepare('INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, \'outbound\', ?, ?, \'sent\')').run(contact.id, broadcast.message, wa_message_id);
+        db.prepare('INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, \'outbound\', ?, ?, \'sent\')').run(contact.id, text, wa_message_id);
       }
 
       db.prepare('UPDATE broadcast_recipients SET status = ?, wa_message_id = ?, sent_at = datetime(\'now\') WHERE broadcast_id = ? AND contact_id = ?')

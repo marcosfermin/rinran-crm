@@ -231,6 +231,29 @@ function initSchema() {
   try { db.exec("ALTER TABLE broadcasts ADD COLUMN status TEXT DEFAULT 'completed'"); } catch {}
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS outbound_webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      events TEXT NOT NULL DEFAULT 'message.inbound',
+      secret TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      key_prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL UNIQUE,
+      scopes TEXT DEFAULT 'read',
+      created_by INTEGER NOT NULL,
+      last_used_at TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,

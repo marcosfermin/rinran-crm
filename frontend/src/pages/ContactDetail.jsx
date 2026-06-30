@@ -410,6 +410,10 @@ export default function ContactDetail() {
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{data.name}</p>
             <div className="flex items-center gap-2 flex-wrap">
+              <a href={`tel:${data.phone}`} onClick={e => e.stopPropagation()} title="Llamar"
+                className="text-gray-500 hover:text-blue-400 transition-colors">
+                <Phone size={12} />
+              </a>
               <button onClick={e => { e.stopPropagation(); checkWhatsApp(); }} title="Verificar WhatsApp"
                 className={`text-xs flex items-center gap-1 transition-colors ${
                   numberStatus === 'checking' ? 'text-gray-500' :
@@ -417,7 +421,6 @@ export default function ContactDetail() {
                   numberStatus?.exists === false ? 'text-red-400' :
                   'text-gray-500 hover:text-green-400'
                 }`}>
-                <Phone size={10} />
                 <span className="truncate max-w-[110px]">{data.phone}</span>
                 {numberStatus === 'checking' && <span className="text-[10px]">…</span>}
                 {numberStatus?.exists === true && <CheckCircle size={9} />}

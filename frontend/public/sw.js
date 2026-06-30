@@ -1,4 +1,4 @@
-const CACHE = 'rinran-v3';
+const CACHE = 'rinran-v4';
 const STATIC = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', e => {

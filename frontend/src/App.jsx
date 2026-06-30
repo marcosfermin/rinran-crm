@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Trash2, Activity, Sun, Moon, Pencil, X } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
@@ -398,7 +398,7 @@ export default function App() {
   const [installPrompt, triggerInstall] = useInstallPrompt();
   const [dismissedInstall, setDismissedInstall] = useState(() => sessionStorage.getItem('install_dismissed') === '1');
   const location = useLocation();
-  const isChat = location.pathname.startsWith('/contacts/');
+  const isChat = location.pathname.startsWith('/contacts/') || /^\/inbox\/\d+/.test(location.pathname);
 
   // Subscribe to push when logged in (request permission if needed)
   useEffect(() => {
@@ -433,24 +433,25 @@ export default function App() {
       <Sidebar unread={unread} onLogout={logout} user={user}
         onQuickCompose={() => setShowCompose(true)}
         theme={theme} onToggleTheme={toggleTheme} />
-      <main className={`flex-1 overflow-y-auto scrollbar-thin ${isChat ? '' : 'pb-16 md:pb-0'}`}>
+      <main className={`flex-1 ${isChat ? 'overflow-hidden' : 'overflow-y-auto pb-16 md:pb-0'} scrollbar-thin`}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/inbox/:selectedId" element={<InboxPage />} />
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/contacts/:id" element={<ContactDetail />} />
           <Route path="/broadcast" element={<Broadcast />} />
-          <Route path="/categories" element={<Categories />} />
+          <Route path="/categories" element={user?.role === 'admin' ? <Categories /> : <Navigate to="/inbox" replace />} />
           <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/templates" element={<Templates />} />
-          <Route path="/team" element={<Team />} />
-          <Route path="/sessions" element={<Sessions />} />
+          <Route path="/team" element={user?.role === 'admin' ? <Team /> : <Navigate to="/inbox" replace />} />
+          <Route path="/sessions" element={user?.role === 'admin' ? <Sessions /> : <Navigate to="/inbox" replace />} />
           <Route path="/auto-reply" element={<AutoReply />} />
           <Route path="/search" element={<GlobalSearch />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/trash" element={<Trash />} />
-          <Route path="/webhook-log" element={<WebhookLog />} />
+          <Route path="/webhook-log" element={user?.role === 'admin' ? <WebhookLog /> : <Navigate to="/inbox" replace />} />
         </Routes>
       </main>
       <BottomNav unread={unread} />

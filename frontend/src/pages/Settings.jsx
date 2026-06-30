@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight, Mail, Database, Download, Upload, Eye, EyeOff, Copy, Link, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -43,6 +43,28 @@ export default function Settings() {
   const [phonebookImporting, setPhonebookImporting] = useState(false);
   const [phonebookResult, setPhonebookResult] = useState(null);
 
+  // SMTP
+  const [smtpForm, setSmtpForm] = useState({ smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '', smtp_enabled: '0' });
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpMsg, setSmtpMsg] = useState({ text: '', ok: false });
+  const [smtpTestEmail, setSmtpTestEmail] = useState('');
+  const [smtpShowPass, setSmtpShowPass] = useState(false);
+
+  // Backup/Restore
+  const [restoring, setRestoring] = useState(false);
+  const [backupMsg, setBackupMsg] = useState({ text: '', ok: false });
+
+  // Outbound webhooks
+  const [outboundHooks, setOutboundHooks] = useState([]);
+  const [newHook, setNewHook] = useState({ name: '', url: '', events: 'message.inbound', secret: '' });
+  const [hookMsg, setHookMsg] = useState('');
+
+  // API keys
+  const [apiKeys, setApiKeys] = useState([]);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyResult, setNewKeyResult] = useState(null);
+  const [keyMsg, setKeyMsg] = useState('');
+
   useEffect(() => {
     apiFetch('/api/settings').then(r => r?.json()).then(d => { if (d) { setSettings(d); setForm(d); } });
     apiFetch('/api/settings/custom-fields').then(r => r?.json()).then(d => d && setCustomFields(Array.isArray(d) ? d : []));
@@ -52,6 +74,9 @@ export default function Settings() {
       apiFetch('/api/settings/assignment-rules').then(r => r?.json()).then(d => d && setRules(Array.isArray(d) ? d : []));
       apiFetch('/api/team').then(r => r?.json()).then(d => d && setAgents(Array.isArray(d) ? d : []));
       apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
+      apiFetch('/api/settings/smtp').then(r => r?.json()).then(d => d && setSmtpForm(prev => ({ ...prev, ...d })));
+      apiFetch('/api/settings/outbound-webhooks').then(r => r?.json()).then(d => d && setOutboundHooks(Array.isArray(d) ? d : []));
+      apiFetch('/api/settings/api-keys').then(r => r?.json()).then(d => d && setApiKeys(Array.isArray(d) ? d : []));
     }
   }, [isAdmin]);
 
@@ -156,6 +181,83 @@ export default function Settings() {
     const d = await r?.json();
     setPhonebookResult(d); setPhonebookImporting(false);
     setTimeout(() => setPhonebookResult(null), 8000);
+  }
+
+  async function saveSmtp(e) {
+    e.preventDefault(); setSmtpSaving(true);
+    const r = await apiFetch('/api/settings/smtp', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(smtpForm) });
+    setSmtpSaving(false);
+    if (r?.ok) { setSmtpMsg({ text: 'Guardado', ok: true }); } else { const d = await r?.json(); setSmtpMsg({ text: d?.error || 'Error', ok: false }); }
+    setTimeout(() => setSmtpMsg({ text: '', ok: false }), 3000);
+  }
+
+  async function testSmtp() {
+    if (!smtpTestEmail.trim()) return;
+    setSmtpMsg({ text: 'Enviando...', ok: true });
+    const r = await apiFetch('/api/settings/smtp/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: smtpTestEmail }) });
+    const d = await r?.json();
+    setSmtpMsg(r?.ok ? { text: 'Email enviado ✓', ok: true } : { text: d?.error || 'Error', ok: false });
+    setTimeout(() => setSmtpMsg({ text: '', ok: false }), 5000);
+  }
+
+  async function downloadBackup() {
+    const r = await apiFetch('/api/settings/backup');
+    if (!r?.ok) return;
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `rinran-backup-${new Date().toISOString().slice(0,10)}.db`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function uploadRestore(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!confirm('¿Restaurar esta base de datos? Esto reemplazará TODOS los datos actuales.')) { e.target.value = ''; return; }
+    setRestoring(true); setBackupMsg({ text: '', ok: false });
+    const r = await fetch('/api/settings/restore', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('rinran_token') || ''}`, 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+    const d = await r.json().catch(() => ({}));
+    setRestoring(false);
+    setBackupMsg(r.ok ? { text: d.message || 'Restaurado ✓', ok: true } : { text: d.error || 'Error', ok: false });
+    e.target.value = '';
+  }
+
+  async function addOutboundHook() {
+    if (!newHook.name.trim() || !newHook.url.trim()) return;
+    const r = await apiFetch('/api/settings/outbound-webhooks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newHook) });
+    const d = await r?.json();
+    if (r?.ok) { setOutboundHooks(prev => [...prev, d]); setNewHook({ name: '', url: '', events: 'message.inbound', secret: '' }); }
+    else setHookMsg(d?.error || 'Error'); setTimeout(() => setHookMsg(''), 3000);
+  }
+
+  async function toggleOutboundHook(id, is_active) {
+    await apiFetch(`/api/settings/outbound-webhooks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !is_active }) });
+    setOutboundHooks(prev => prev.map(h => h.id === id ? { ...h, is_active: is_active ? 0 : 1 } : h));
+  }
+
+  async function deleteOutboundHook(id) {
+    if (!confirm('¿Eliminar webhook?')) return;
+    await apiFetch(`/api/settings/outbound-webhooks/${id}`, { method: 'DELETE' });
+    setOutboundHooks(prev => prev.filter(h => h.id !== id));
+  }
+
+  async function createApiKey() {
+    if (!newKeyName.trim()) return;
+    const r = await apiFetch('/api/settings/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newKeyName }) });
+    const d = await r?.json();
+    if (r?.ok) { setApiKeys(prev => [d, ...prev]); setNewKeyResult(d); setNewKeyName(''); }
+    else { setKeyMsg(d?.error || 'Error'); setTimeout(() => setKeyMsg(''), 3000); }
+  }
+
+  async function deleteApiKey(id) {
+    if (!confirm('¿Revocar esta API key?')) return;
+    await apiFetch(`/api/settings/api-keys/${id}`, { method: 'DELETE' });
+    setApiKeys(prev => prev.filter(k => k.id !== id));
   }
 
   if (!settings) return <div className="flex items-center justify-center h-full text-gray-600"><div className="animate-pulse">Cargando...</div></div>;
@@ -449,6 +551,185 @@ export default function Settings() {
             </select>
             <button onClick={addCustomField} className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg text-sm transition-colors">
               <Plus size={14} /> Agregar
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* SMTP (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2"><Mail size={14} /> Correo electrónico (SMTP)</h2>
+          <form onSubmit={saveSmtp} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Servidor SMTP</label>
+                <input value={smtpForm.smtp_host} onChange={e => setSmtpForm(f => ({ ...f, smtp_host: e.target.value }))}
+                  placeholder="smtp.gmail.com"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Puerto</label>
+                <input type="number" value={smtpForm.smtp_port} onChange={e => setSmtpForm(f => ({ ...f, smtp_port: e.target.value }))}
+                  placeholder="587"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Usuario</label>
+              <input value={smtpForm.smtp_user} onChange={e => setSmtpForm(f => ({ ...f, smtp_user: e.target.value }))}
+                placeholder="usuario@gmail.com"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Contraseña</label>
+              <div className="relative">
+                <input type={smtpShowPass ? 'text' : 'password'} value={smtpForm.smtp_pass} onChange={e => setSmtpForm(f => ({ ...f, smtp_pass: e.target.value }))}
+                  placeholder="Contraseña o app password"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 pr-10 text-sm text-white focus:outline-none focus:border-green-500" />
+                <button type="button" onClick={() => setSmtpShowPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                  {smtpShowPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Remitente (from)</label>
+              <input value={smtpForm.smtp_from} onChange={e => setSmtpForm(f => ({ ...f, smtp_from: e.target.value }))}
+                placeholder="Rinran CRM <noreply@empresa.com>"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button type="submit" disabled={smtpSaving}
+                className="flex items-center gap-1.5 bg-green-500 hover:bg-green-400 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                <Save size={14} /> {smtpSaving ? 'Guardando...' : 'Guardar SMTP'}
+              </button>
+              {smtpMsg.text && <span className={`text-sm ${smtpMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{smtpMsg.text}</span>}
+            </div>
+          </form>
+          <div className="mt-4 pt-4 border-t border-gray-800 flex items-center gap-2">
+            <input value={smtpTestEmail} onChange={e => setSmtpTestEmail(e.target.value)}
+              placeholder="Email de prueba"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+            <button onClick={testSmtp} disabled={!smtpTestEmail.trim()}
+              className="flex items-center gap-1.5 border border-gray-600 hover:border-gray-400 text-gray-300 hover:text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40">
+              <Mail size={14} /> Enviar prueba
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Backup / Restore (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2"><Database size={14} /> Respaldo y restauración</h2>
+          <p className="text-xs text-gray-500 mb-4">Descarga una copia de la base de datos SQLite o restaura desde un respaldo anterior.</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button onClick={downloadBackup}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <Download size={14} /> Descargar respaldo
+            </button>
+            <label className={`flex items-center gap-1.5 border border-gray-600 hover:border-orange-500 text-gray-300 hover:text-orange-400 px-4 py-2 rounded-lg text-sm cursor-pointer transition-colors ${restoring ? 'opacity-50 pointer-events-none' : ''}`}>
+              {restoring ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
+              {restoring ? 'Restaurando...' : 'Restaurar respaldo'}
+              <input type="file" accept=".db" className="hidden" onChange={uploadRestore} />
+            </label>
+          </div>
+          {backupMsg.text && <p className={`text-sm mt-3 ${backupMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{backupMsg.text}</p>}
+        </section>
+      )}
+
+      {/* Outbound Webhooks (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2"><Link size={14} /> Webhooks salientes</h2>
+          <p className="text-xs text-gray-500 mb-4">Recibe notificaciones en tus servicios cuando lleguen mensajes nuevos.</p>
+          <div className="space-y-2 mb-4">
+            {outboundHooks.length === 0 && <p className="text-xs text-gray-600">Sin webhooks configurados</p>}
+            {outboundHooks.map(h => (
+              <div key={h.id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 border ${h.is_active ? 'border-gray-700 bg-gray-800' : 'border-gray-800 bg-gray-900 opacity-60'}`}>
+                <button onClick={() => toggleOutboundHook(h.id, h.is_active)}>
+                  {h.is_active ? <ToggleRight size={20} className="text-green-400" /> : <ToggleLeft size={20} className="text-gray-600" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white">{h.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{h.url}</p>
+                </div>
+                <span className="text-[10px] text-gray-600 shrink-0">{h.events}</span>
+                <button onClick={() => deleteOutboundHook(h.id)} className="p-1 text-gray-600 hover:text-red-400 shrink-0">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {hookMsg && <p className="text-sm text-red-400 mb-2">{hookMsg}</p>}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <input value={newHook.name} onChange={e => setNewHook(h => ({ ...h, name: e.target.value }))}
+                placeholder="Nombre *"
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+              <select value={newHook.events} onChange={e => setNewHook(h => ({ ...h, events: e.target.value }))}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                <option value="message.inbound">Mensajes entrantes</option>
+                <option value="message.inbound,message.outbound">Todos los mensajes</option>
+                <option value="contact.new">Contacto nuevo</option>
+              </select>
+            </div>
+            <input value={newHook.url} onChange={e => setNewHook(h => ({ ...h, url: e.target.value }))}
+              placeholder="URL del endpoint (https://...) *"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            <div className="flex gap-2">
+              <input value={newHook.secret} onChange={e => setNewHook(h => ({ ...h, secret: e.target.value }))}
+                placeholder="Secret para firma HMAC (opcional)"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+              <button onClick={addOutboundHook} disabled={!newHook.name.trim() || !newHook.url.trim()}
+                className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+                <Plus size={14} /> Agregar
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* API Keys (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2"><Key size={14} /> API Keys externas</h2>
+          <p className="text-xs text-gray-500 mb-4">Genera claves para acceder a la API de Rinran CRM desde servicios externos.</p>
+          {newKeyResult && (
+            <div className="mb-4 p-3 bg-green-900/20 border border-green-700 rounded-xl">
+              <p className="text-xs text-green-400 mb-1 font-medium">¡Clave generada! Cópiala ahora, no se mostrará de nuevo.</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-green-300 bg-gray-900 px-3 py-2 rounded-lg break-all">{newKeyResult.key}</code>
+                <button onClick={() => { navigator.clipboard.writeText(newKeyResult.key); }} className="p-2 text-green-400 hover:text-white shrink-0" title="Copiar">
+                  <Copy size={14} />
+                </button>
+              </div>
+              <button onClick={() => setNewKeyResult(null)} className="mt-2 text-xs text-gray-500 hover:text-white">Cerrar</button>
+            </div>
+          )}
+          <div className="space-y-2 mb-4">
+            {apiKeys.length === 0 && <p className="text-xs text-gray-600">Sin API keys</p>}
+            {apiKeys.map(k => (
+              <div key={k.id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white">{k.name}</p>
+                  <p className="text-xs text-gray-500 font-mono">{k.key_prefix}… · {k.last_used_at ? `último uso: ${new Date(k.last_used_at.replace(' ','T')+'Z').toLocaleDateString('es')}` : 'nunca usado'}</p>
+                </div>
+                <button onClick={() => deleteApiKey(k.id)} className="p-1 text-gray-600 hover:text-red-400">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {keyMsg && <p className="text-sm text-red-400 mb-2">{keyMsg}</p>}
+          <div className="flex gap-2">
+            <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && createApiKey()}
+              placeholder="Nombre de la clave..."
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            <button onClick={createApiKey} disabled={!newKeyName.trim()}
+              className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+              <Plus size={14} /> Generar
             </button>
           </div>
         </section>

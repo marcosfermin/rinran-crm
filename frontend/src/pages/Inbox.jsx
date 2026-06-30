@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Search, MessageSquare, RefreshCw, AlertTriangle, Filter, X, Send, UserCheck, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
+import InboxChatPanel from '../components/InboxChatPanel.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
 function timeAgo(dateStr) {
@@ -45,7 +46,6 @@ const CONV_STATUS_OPTIONS = [
 const CONV_STATUS_COLORS = { open: 'text-green-400', pending: 'text-yellow-400', closed: 'text-gray-500' };
 const CONV_STATUS_BG = { open: 'bg-green-500/10 border-green-700 text-green-400', pending: 'bg-yellow-500/10 border-yellow-700 text-yellow-400', closed: 'bg-gray-500/10 border-gray-700 text-gray-400' };
 
-// Quick reply modal
 function QuickReplyModal({ contact, onClose, onSent }) {
   const [msg, setMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -95,6 +95,9 @@ function QuickReplyModal({ contact, onClose, onSent }) {
 
 export default function InboxPage() {
   const navigate = useNavigate();
+  const { selectedId: selectedIdParam } = useParams();
+  const selectedId = selectedIdParam ? parseInt(selectedIdParam) : null;
+
   const { user, token } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState('');
@@ -118,7 +121,6 @@ export default function InboxPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // SSE: reload on new message
   useEffect(() => {
     if (!token) return;
     const es = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
@@ -151,7 +153,6 @@ export default function InboxPage() {
     setConversations(prev => prev.map(c => c.id === contactId ? { ...c, assigned_to: assigned_to || null, assigned_name: agentName } : c));
   }
 
-  // Close menus on outside click
   useEffect(() => {
     if (statusMenuId === null && assignMenuId === null) return;
     const close = () => { setStatusMenuId(null); setAssignMenuId(null); };
@@ -162,9 +163,12 @@ export default function InboxPage() {
   const totalUnread = conversations.reduce((s, c) => s + (c.unread_count || 0), 0);
   const slaBreaches = conversations.filter(c => c.sla_breach).length;
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="bg-gray-900 border-b border-gray-800 px-4 py-4 sticky top-0 z-10">
+  const listPanel = (
+    <div className={`flex flex-col h-full border-r border-gray-800 bg-gray-950 ${
+      selectedId ? 'hidden md:flex md:w-80 xl:w-96 shrink-0' : 'flex-1'
+    }`}>
+      {/* Header */}
+      <div className="bg-gray-900 border-b border-gray-800 px-4 py-4 sticky top-0 z-10 shrink-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-white">Bandeja</h1>
@@ -179,9 +183,9 @@ export default function InboxPage() {
             <button onClick={() => setShowFilters(v => !v)}
               className={`flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg transition-colors ${showFilters || convStatusFilter || agentFilter ? 'text-green-400 border-green-700 bg-green-500/10' : 'text-gray-400 border-gray-700 hover:text-white'}`}>
               <Filter size={13} />
-              {(convStatusFilter || agentFilter) ? 'Filtros activos' : 'Filtrar'}
+              {(convStatusFilter || agentFilter) ? 'Activos' : 'Filtrar'}
             </button>
-            <button onClick={startSync} disabled={syncStatus.running} title="Sincronizar historial"
+            <button onClick={startSync} disabled={syncStatus.running} title="Sincronizar"
               className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
               <RefreshCw size={13} className={syncStatus.running ? 'animate-spin' : ''} />
               {syncStatus.running ? 'Sync...' : 'Sync'}
@@ -190,9 +194,6 @@ export default function InboxPage() {
         </div>
 
         {syncStatus.running && <div className="mb-2 text-xs text-gray-500 px-0.5">Importando... {syncStatus.imported.contacts} contactos · {syncStatus.imported.messages} mensajes</div>}
-        {syncStatus.lastSync && !syncStatus.running && (
-          <div className="mb-2 text-xs text-gray-600 px-0.5">Sync: {new Date(syncStatus.lastSync).toLocaleString('es')}{syncStatus.imported.messages > 0 && ` · ${syncStatus.imported.messages} importados`}</div>
-        )}
 
         {showFilters && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -226,27 +227,27 @@ export default function InboxPage() {
         </div>
       </div>
 
+      {/* List */}
       <div className="flex-1 overflow-y-auto divide-y divide-gray-800/60">
         {conversations.length === 0 && !syncStatus.running && (
           <div className="flex flex-col items-center justify-center h-64 text-gray-600">
             <MessageSquare size={36} className="mb-3 opacity-30" />
             <p className="text-sm">Sin conversaciones</p>
-            <p className="text-xs mt-1 text-gray-700">Presioná "Sync" para importar el historial</p>
+            <p className="text-xs mt-1 text-gray-700">Presiona "Sync" para importar el historial</p>
           </div>
         )}
 
         {conversations.map(c => (
           <div key={c.id}
-            className={`flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 transition-colors ${c.sla_breach ? 'border-l-2 border-red-500' : ''}`}>
+            onClick={() => navigate(`/inbox/${c.id}`)}
+            className={`flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 transition-colors cursor-pointer ${c.sla_breach ? 'border-l-2 border-red-500' : ''} ${selectedId === c.id ? 'bg-gray-800/70 border-l-2 border-green-500' : ''}`}>
 
-            {/* Avatar — click opens contact */}
-            <div className="relative shrink-0 cursor-pointer" onClick={() => navigate(`/contacts/${c.id}`)}>
-              <Avatar contact={c} size="md" onClick={e => { e.stopPropagation(); setLightbox(c); }} />
+            <div className="relative shrink-0" onClick={e => { e.stopPropagation(); setLightbox(c); }}>
+              <Avatar contact={c} size="md" />
               {c.unread_count > 0 && <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-950" />}
             </div>
 
-            {/* Main content — click opens contact */}
-            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/contacts/${c.id}`)}>
+            <div className="flex-1 min-w-0">
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className={`text-sm font-semibold truncate ${c.unread_count > 0 ? 'text-white' : 'text-gray-300'}`}>{c.name}</span>
@@ -260,7 +261,6 @@ export default function InboxPage() {
               </p>
             </div>
 
-            {/* Inline actions */}
             <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
               {c.unread_count > 0 && (
                 <span className="bg-green-500 text-white text-[11px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1 mr-1">
@@ -268,14 +268,12 @@ export default function InboxPage() {
                 </span>
               )}
 
-              {/* Quick reply */}
               <button onClick={e => { e.stopPropagation(); setQuickReply(c); }}
                 title="Responder rápido"
                 className="p-1.5 text-gray-600 hover:text-green-400 transition-colors rounded-lg hover:bg-gray-800">
                 <Send size={13} />
               </button>
 
-              {/* Status pill */}
               <div className="relative">
                 <button onClick={e => { e.stopPropagation(); setStatusMenuId(statusMenuId === c.id ? null : c.id); setAssignMenuId(null); }}
                   className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${CONV_STATUS_BG[c.conv_status] || 'bg-gray-700 text-gray-400 border-gray-600'}`}>
@@ -294,7 +292,6 @@ export default function InboxPage() {
                 )}
               </div>
 
-              {/* Agent assign (admin only) */}
               {user?.role === 'admin' && team.length > 0 && (
                 <div className="relative">
                   <button onClick={e => { e.stopPropagation(); setAssignMenuId(assignMenuId === c.id ? null : c.id); setStatusMenuId(null); }}
@@ -321,6 +318,27 @@ export default function InboxPage() {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {listPanel}
+
+      {/* Right panel: chat — desktop always, mobile only when selected */}
+      <div className={`flex-1 h-full overflow-hidden ${selectedId ? 'flex flex-col' : 'hidden md:flex'}`}>
+        {selectedId ? (
+          <InboxChatPanel
+            contactId={selectedId}
+            onClose={() => navigate('/inbox')}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-gray-700 bg-gray-950">
+            <MessageSquare size={40} className="mb-3 opacity-20" />
+            <p className="text-sm">Selecciona una conversación</p>
+          </div>
+        )}
       </div>
 
       <PhotoLightbox contact={lightbox} onClose={() => setLightbox(null)} />

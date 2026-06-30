@@ -2,7 +2,7 @@
 
 CRM para gestionar contactos de WhatsApp. Funciona como tu bandeja de entrada: cualquier persona que te escriba aparece automáticamente con su nombre, bandera de país e historial de conversación. Desde el CRM respondés individualmente o enviás mensajes masivos a toda tu base.
 
-Se conecta a tu WhatsApp a través de un servidor **OpenWA** — sin necesidad de Meta Business API, sin migrar tu número, sin aprobaciones. Funciona con el mismo número que ya usás.
+Se conecta a tu WhatsApp a través de **WAHA** (WhatsApp HTTP API) — sin necesidad de Meta Business API, sin migrar tu número, sin aprobaciones. Funciona con el mismo número que ya usás.
 
 Está diseñado para usarse desde el teléfono — podés instalarlo en la pantalla de inicio como si fuera una app.
 
@@ -10,35 +10,57 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 
 ## Características
 
-- **Bandeja unificada** — Todos los mensajes entrantes en una sola pantalla, ordenados por el más reciente, con badge de no leídos.
+- **Bandeja unificada** — Todos los mensajes entrantes en una sola pantalla, ordenados por el más reciente, con badge de no leídos y sonido de notificación.
+- **Tiempo real** — Mensajes nuevos aparecen al instante vía SSE (Server-Sent Events). Sin polling manual.
 - **Captura automática** — Cuando alguien te escribe, el contacto se crea solo con su nombre y teléfono. No hay que hacer nada manual.
+- **Captura de grupos** — Los mensajes de grupos también se capturan, usando al remitente como contacto.
 - **Bandera de país** — Detecta el país por código de área (`+52` → 🇲🇽, `+54` → 🇦🇷, `+55` → 🇧🇷, etc.).
-- **Chat individual** — Vista de conversación por contacto, con historial completo. Los mensajes nuevos aparecen solos cada 6 segundos.
-- **Broadcast masivo** — Enviá un mensaje a toda una categoría o a todos tus contactos activos de una sola vez.
+- **Chat individual** — Vista de conversación por contacto, con historial completo. Soporte para responder mensajes específicos (cita), enviar archivos, notas de voz y ubicaciones.
+- **Broadcast masivo** — Enviá un mensaje a toda una categoría, tag o etapa del pipeline. Soporte para programar broadcasts.
+- **Plantillas** — Guardá mensajes predefinidos para reutilizarlos desde cualquier chat.
+- **Respuestas automáticas** — Configurá reglas para responder automáticamente según palabras clave o el primer mensaje.
+- **Pipeline** — Vista Kanban de contactos por etapa de venta (Nuevo, En progreso, Ganado, etc.).
 - **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos.
+- **Tags** — Etiquetás contactos con múltiples tags de colores.
+- **Campos personalizados** — Definí campos extra para tus contactos (texto, número, fecha, select).
+- **Notas internas** — Anotaciones privadas del equipo, visibles solo dentro del CRM.
+- **Recordatorios** — Programá un seguimiento para un contacto; el CRM te notifica cuando vence.
+- **Multi-usuario** — Creá cuentas para todo tu equipo con roles admin/agente. Asignación automática por reglas.
+- **Autenticación** — Login con email/contraseña, roles, y 2FA (TOTP) opcional.
+- **Notificaciones push** — Notificaciones en el navegador y Web Push cuando llegan mensajes o vencen recordatorios.
+- **Búsqueda global** — Buscá en contactos, mensajes y conversaciones desde un solo lugar.
+- **Filtros guardados** — Guardá combinaciones de filtros de contactos para reutilizarlas.
+- **Papelera** — Los contactos eliminados van a la papelera; podés restaurarlos o borrarlos definitivamente.
+- **Log de webhooks** — Revisá todos los eventos que llegaron desde WAHA en tiempo real.
+- **Webhooks de salida** — Enviá eventos del CRM a URLs externas (Zapier, Make, tu propio backend).
+- **API keys** — Generá claves de API para integrar el CRM con herramientas externas.
+- **SMTP** — Configurá envío de emails desde el CRM.
+- **Backup / Restore** — Exportá e importá la base de datos desde la UI.
 - **Dashboard** — Estadísticas en tiempo real: contactos por país, por categoría, mensajes enviados y recibidos.
-- **Móvil primero** — Navegación por abajo en el teléfono, pantalla completa, instalable como app.
-- **Todo en Docker** — Un solo comando levanta backend + frontend + base de datos.
+- **Móvil primero** — Navegación por abajo en el teléfono, pantalla completa, instalable como PWA.
+- **Tema claro / oscuro** — Alternás desde cualquier pantalla.
+- **Todo en Docker** — Un solo comando levanta backend + frontend + WAHA.
 
 ---
 
-## Cómo funciona con OpenWA
+## Cómo funciona con WAHA
 
-OpenWA es un servidor que conecta tu WhatsApp (personal o Business) a través de un QR code, igual que WhatsApp Web. El CRM se comunica con ese servidor para enviar y recibir mensajes.
+WAHA (WhatsApp HTTP API) es un servidor que conecta tu WhatsApp (personal o Business) a través de un QR code, igual que WhatsApp Web. El CRM se comunica con ese servidor para enviar y recibir mensajes. A diferencia del README original, **WAHA ya viene incluido** en el `docker-compose.yml` — no necesitás instalarlo por separado.
 
 ```
 [Tu WhatsApp — número que ya usás]
          │
-         │ QR scan (una sola vez)
+         │ QR scan (una sola vez, desde la UI del CRM)
          ▼
-  [Servidor OpenWA]  ←──────────────────── envía mensajes
-         │                                  (desde el CRM)
-         │ webhook (cada mensaje entrante)
+  [WAHA — contenedor rinran-waha]  ←──── envía mensajes (texto, archivos,
+         │                                voz, ubicación, typing, seen...)
+         │ webhook POST /webhook (cada mensaje entrante)
          ▼
-   [Rinran CRM]
+   [Rinran CRM — backend]
          │
+         │ SSE en tiempo real
          ▼
-  [Bandeja + Chats + Broadcasts]
+  [Frontend — Bandeja + Chats + Pipeline + Broadcasts]
 ```
 
 **Ventajas sobre Meta Cloud API:**
@@ -48,7 +70,8 @@ OpenWA es un servidor que conecta tu WhatsApp (personal o Business) a través de
 - Funciona con WhatsApp personal y WhatsApp Business
 
 **A tener en cuenta:**
-- El servidor OpenWA debe estar corriendo y conectado para que el CRM funcione
+- WAHA corre en el contenedor `rinran-waha` junto al CRM
+- El motor por defecto es NOWEB (sin Chromium, más liviano)
 - WhatsApp detecta el uso como cliente no oficial — riesgo bajo pero existente para uso normal de negocio
 
 ---
@@ -57,191 +80,127 @@ OpenWA es un servidor que conecta tu WhatsApp (personal o Business) a través de
 
 | Componente | Detalle |
 |------------|---------|
-| Docker + Docker Compose | Para correr el CRM |
-| Servidor OpenWA | Corriendo y conectado a tu WhatsApp via QR |
+| Docker + Docker Compose v2 | Para correr el CRM |
+| Un número de WhatsApp | Para conectar vía QR |
 
-> No necesitás Node.js, Meta Business account, ni ninguna otra cosa. Solo Docker y tu servidor OpenWA.
-
----
-
-## Parte 1 — Configurar el servidor OpenWA
-
-Si ya tenés el servidor OpenWA corriendo y conectado a tu WhatsApp, pasá directo al [Paso 2](#parte-2--instalar-y-levantar-el-crm).
-
-### Paso 1 — Levantar OpenWA con Docker
-
-La forma más rápida es correr OpenWA como contenedor Docker. Creá un archivo `docker-compose.openwa.yml` en una carpeta separada:
-
-```yaml
-services:
-  openwa:
-    image: openwa/wa-automate
-    container_name: openwa
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - openwa-session:/app/.wwebjs_auth
-    environment:
-      - PORT=8080
-      # Opcional: proteger el servidor con API key
-      - API_KEY=tu_api_key_secreta
-
-volumes:
-  openwa-session:
-```
-
-```bash
-docker compose -f docker-compose.openwa.yml up -d
-```
-
-### Paso 2 — Escanear el QR
-
-1. Abrí los logs del contenedor:
-   ```bash
-   docker logs -f openwa
-   ```
-2. Aparecerá un **código QR** en la terminal
-3. Abrí WhatsApp en tu teléfono → **Dispositivos vinculados → Vincular dispositivo**
-4. Escaneá el QR
-5. Cuando aparezca el mensaje `Client is ready!` en los logs, la conexión está establecida
-
-La sesión se guarda en el volumen `openwa-session` — no necesitás re-escanear a menos que cierres la sesión desde el teléfono.
-
-### Paso 3 — Verificar que OpenWA responde
-
-```bash
-curl http://localhost:8080/getConnectionState
-```
-
-Respuesta esperada:
-```json
-{ "response": "CONNECTED" }
-```
+> No necesitás Node.js, cuenta de Meta Business, servidor WAHA externo, ni ninguna otra cosa. Solo Docker.
 
 ---
 
-## Parte 2 — Instalar y levantar el CRM
-
-### Paso 4 — Clonar el repositorio
+## Instalación — Opción A: Setup automático (recomendado)
 
 ```bash
 git clone https://github.com/marcosfermin/rinran-crm.git
 cd rinran-crm
+./setup.sh
 ```
 
-### Paso 5 — Configurar las variables de entorno
+El instalador hace todo:
+1. Verifica que Docker y Docker Compose estén instalados
+2. Te pide el puerto, email de admin, contraseña de admin y contraseña del dashboard WAHA
+3. Genera secrets seguros (JWT, API key) automáticamente
+4. Crea el `.env`
+5. Construye e inicia los contenedores
+6. Espera a que backend y frontend estén listos
+7. Muestra la URL de acceso y las credenciales
+
+Al terminar, verás algo así:
+
+```
+  ✓ Rinran CRM instalado correctamente
+
+  Acceso:
+    CRM          →  http://192.168.1.50:3000
+    WAHA dashboard → http://192.168.1.50:3001/dashboard
+
+  Credenciales CRM:
+    Email      →  admin@miempresa.com
+    Contraseña →  tu-contraseña
+
+  Próximos pasos:
+    1. Abre el CRM e inicia sesión
+    2. Ve a WhatsApp / Sesiones y crea una sesión
+    3. Escanea el QR con WhatsApp para conectar
+```
+
+---
+
+## Instalación — Opción B: Manual
+
+### Paso 1 — Clonar
 
 ```bash
+git clone https://github.com/marcosfermin/rinran-crm.git
+cd rinran-crm
 cp .env.example .env
 ```
 
-Abrí `.env` y completá:
+### Paso 2 — Configurar `.env`
 
 ```env
 # Puerto donde se accede al CRM desde el navegador
 FRONTEND_PORT=3000
 
-# URL del servidor OpenWA (sin slash final)
-OPENWA_URL=http://localhost:8080
+# JWT — genera con: openssl rand -hex 32
+JWT_SECRET=cambia-esto-por-un-secreto-seguro
 
-# API Key del servidor OpenWA (si lo configuraste con autenticación)
-# Dejar vacío si no tiene autenticación
-OPENWA_API_KEY=
+# Usuario administrador (se crea solo si la base de datos está vacía)
+ADMIN_EMAIL=admin@miempresa.com
+ADMIN_PASSWORD=contraseña-segura
 
-# CORS (déjalo en * para empezar)
+# WAHA — URL interna (no cambiar si usas Docker Compose)
+OPENWA_URL=http://waha:3000
+
+# API Key de WAHA — debe ser igual en ambas variables
+# Genera con: openssl rand -hex 32
+OPENWA_API_KEY=cambia-esto
+WAHA_API_KEY=cambia-esto
+
+# Dashboard web de WAHA
+WAHA_DASHBOARD_USERNAME=admin
+WAHA_DASHBOARD_PASSWORD=contraseña-dashboard
+
+# CORS
 CORS_ORIGIN=*
 ```
 
-> Si tu servidor OpenWA corre en otra máquina, reemplazá `localhost` por la IP o dominio de ese servidor. Ej: `http://192.168.1.50:8080`
-
-### Paso 6 — Levantar con Docker
+### Paso 3 — Levantar
 
 ```bash
 docker compose up -d --build
 ```
 
-La primera vez tarda unos minutos. Cuando termine:
-
-```bash
-docker compose ps
-```
-
-Deberías ver `rinran-backend` y `rinran-frontend` con estado `Up`.
-
-Abrí el CRM en el navegador: **http://localhost:3000**
-
-### Paso 7 — Verificar la conexión con OpenWA
-
-```bash
-curl http://localhost:3000/api/status
-```
-
-Respuesta esperada:
-
-```json
-{
-  "crm": "ok",
-  "openwa": { "connected": true, "state": "CONNECTED" },
-  "openwa_url": "http://localhost:8080"
-}
-```
-
-Si `connected` es `false`, revisá que el servidor OpenWA esté corriendo y que `OPENWA_URL` en el `.env` sea correcto.
+Abrí el CRM en: **http://localhost:3000**
 
 ---
 
-## Parte 3 — Recibir mensajes entrantes (webhook)
+## Conectar WhatsApp
 
-Para que los mensajes que te llegan al WhatsApp aparezcan en la Bandeja del CRM, el servidor OpenWA tiene que avisarle al CRM cada vez que llega uno. Esto se hace configurando un webhook.
+1. Iniciá sesión en el CRM con tu email y contraseña de admin
+2. En el menú lateral, andá a **WhatsApp → Sesiones**
+3. Hacé clic en **Nueva sesión** y escribí un nombre (ej: `mi-numero`)
+4. El CRM crea la sesión en WAHA y mostrará un **código QR**
+5. Abrí WhatsApp en tu teléfono → **Dispositivos vinculados → Vincular dispositivo**
+6. Escaneá el QR
+7. Cuando el estado cambie a `WORKING`, la conexión está establecida
 
-### Paso 8 — Configurar el webhook en OpenWA
+La sesión se guarda en el volumen `waha-data` — no necesitás re-escanear a menos que cierres la sesión desde el teléfono o desde la UI.
 
-En la configuración de tu servidor OpenWA, agregá la URL del webhook del CRM:
+---
 
-**Si usás Docker Compose en la misma máquina:**
-
-Editá tu `docker-compose.openwa.yml` y agregá la variable de entorno:
-
-```yaml
-environment:
-  - PORT=8080
-  - API_KEY=tu_api_key_secreta
-  - WEBHOOK_URL=http://rinran-backend:4000/webhook
-```
-
-> Usá el nombre del contenedor (`rinran-backend`) si OpenWA y el CRM están en la misma red Docker. Si están en máquinas distintas, usá la IP o dominio público del CRM.
-
-**Si OpenWA está en otra máquina:**
-
-```yaml
-environment:
-  - WEBHOOK_URL=https://tudominio.com/webhook
-```
-
-Reiniciá el contenedor OpenWA después del cambio:
+## Verificar la conexión
 
 ```bash
-docker compose -f docker-compose.openwa.yml restart
-```
+# Health del backend
+curl http://localhost:3000/health
 
-### Paso 9 — Verificar que llegan mensajes
-
-Enviá un mensaje desde otro teléfono a tu número de WhatsApp. En pocos segundos debe aparecer en la **Bandeja** del CRM con:
-
-- Nombre del contacto (tomado del perfil de WhatsApp)
-- Número con bandera de país
-- El mensaje recibido
-
-Si no aparece, revisá los logs del backend:
-
-```bash
-docker compose logs -f backend
+# Estado de la sesión WAHA (con tu API key)
+curl -H "X-Api-Key: tu-waha-api-key" http://localhost:3001/api/sessions
 ```
 
 ---
 
-## Instalar en el teléfono
+## Instalar en el teléfono (PWA)
 
 El CRM funciona desde el navegador del teléfono y se puede guardar en la pantalla de inicio como una app. Una vez instalado, abre en pantalla completa sin barra del browser — igual que una app nativa.
 
@@ -250,7 +209,7 @@ El CRM funciona desde el navegador del teléfono y se puede guardar en la pantal
 ### iPhone — Safari
 
 1. Abrí el CRM en **Safari** (debe ser Safari, no Chrome)
-2. Tocá el botón de compartir — ícono de caja con flecha hacia arriba, en la barra inferior
+2. Tocá el botón de compartir — ícono de caja con flecha hacia arriba
 3. Bajá en el menú hasta **"Agregar a pantalla de inicio"**
 4. Ponele el nombre que quieras y tocá **Agregar**
 
@@ -261,25 +220,6 @@ El CRM funciona desde el navegador del teléfono y se puede guardar en la pantal
 3. Tocá **"Agregar a pantalla de inicio"** o **"Instalar app"**
 4. Confirmá con **Agregar**
 
-> Chrome a veces muestra un banner automático abajo con el botón **"Instalar"** — podés usarlo directamente.
-
-Desde la pantalla de inicio podés ver la Bandeja, responder chats y enviar broadcasts sin abrir el navegador manualmente.
-
----
-
-## Parte 4 — Crear la campaña en Meta Ads
-
-Esta parte es opcional. Si además de recibir mensajes directos querés capturar leads desde anuncios, podés crear una campaña con botón CTA a WhatsApp.
-
-1. Ve a **[adsmanager.facebook.com](https://adsmanager.facebook.com)**
-2. Clic en **Crear**
-3. Objetivo: **Interacción** → subcategoría **Mensajes**
-4. Plataforma: **WhatsApp**
-5. Conectá tu número de WhatsApp
-6. Diseñá el anuncio y elegí CTA **"Enviar mensaje"**
-
-Cuando alguien haga clic y te escriba → OpenWA recibe el mensaje → el CRM lo captura automáticamente en la Bandeja.
-
 ---
 
 ## Estructura del proyecto
@@ -288,42 +228,78 @@ Cuando alguien haga clic y te escriba → OpenWA recibe el mensaje → el CRM lo
 rinran-crm/
 ├── backend/
 │   ├── src/
-│   │   ├── server.js           Punto de entrada Express
-│   │   ├── db.js               Conexión SQLite + schema + seed
-│   │   ├── phoneUtils.js       Parser de teléfonos y detección de país
-│   │   ├── whatsapp.js         Cliente OpenWA: sendText, getStatus, formato de números
+│   │   ├── server.js              Punto de entrada Express + schedulers
+│   │   ├── db.js                  SQLite vía node:sqlite — schema + migraciones
+│   │   ├── phoneUtils.js          Parser de teléfonos y detección de país
+│   │   ├── whatsapp.js            Cliente WAHA: send, getSession, media, labels, etc.
+│   │   ├── middleware/
+│   │   │   └── auth.js            JWT auth middleware
 │   │   └── routes/
-│   │       ├── contacts.js     CRUD de contactos
-│   │       ├── categories.js   CRUD de categorías
-│   │       ├── messages.js     Envío individual y broadcast vía OpenWA
-│   │       ├── inbox.js        Bandeja de conversaciones con no leídos
-│   │       ├── stats.js        Estadísticas del dashboard
-│   │       ├── status.js       Estado de conexión con OpenWA
-│   │       └── webhook.js      Receptor de eventos del servidor OpenWA
+│   │       ├── auth.js            Login, registro, 2FA (TOTP)
+│   │       ├── contacts.js        CRUD de contactos + campos custom + historial
+│   │       ├── categories.js      CRUD de categorías (con sync a labels WAHA)
+│   │       ├── messages.js        Envío individual, archivos, voz, ubicación, broadcast
+│   │       ├── inbox.js           Bandeja de conversaciones con no leídos
+│   │       ├── stats.js           Estadísticas del dashboard
+│   │       ├── status.js          Estado de conexión con WAHA
+│   │       ├── webhook.js         Receptor de eventos WAHA (mensajes entrantes + ACKs)
+│   │       ├── sync.js            Importar chats/contactos existentes desde WAHA
+│   │       ├── templates.js       CRUD de plantillas de mensajes
+│   │       ├── autoReply.js       Reglas de respuesta automática
+│   │       ├── tags.js            CRUD de tags
+│   │       ├── internalNotes.js   Notas internas por contacto
+│   │       ├── reminders.js       Recordatorios de seguimiento
+│   │       ├── users.js           Gestión de equipo (admin)
+│   │       ├── savedFilters.js    Filtros guardados por usuario
+│   │       ├── trash.js           Papelera de contactos eliminados
+│   │       ├── webhookLog.js      Log de eventos WAHA entrantes
+│   │       ├── sse.js             Server-Sent Events (push en tiempo real)
+│   │       ├── push.js            Web Push notifications
+│   │       └── settings.js        Config. de empresa, webhook, SMTP, API keys, backup
 │   ├── Dockerfile
 │   └── package.json
 │
 ├── frontend/
+│   ├── public/
+│   │   └── sw.js                  Service Worker (PWA + Web Push)
 │   ├── src/
 │   │   ├── main.jsx
-│   │   ├── App.jsx             Router + sidebar desktop + nav móvil
+│   │   ├── App.jsx                Router + sidebar + nav móvil + SSE + notif.
 │   │   ├── index.css
+│   │   ├── contexts/
+│   │   │   └── AuthContext.jsx    Contexto de autenticación JWT
 │   │   ├── hooks/
 │   │   │   └── useApi.js
+│   │   ├── utils/
+│   │   │   └── apiFetch.js        Fetch wrapper con auth header
+│   │   ├── components/
+│   │   │   ├── Avatar.jsx
+│   │   │   └── InboxChatPanel.jsx Panel de chat embebido en la bandeja
 │   │   └── pages/
-│   │       ├── Inbox.jsx       Bandeja de conversaciones (pantalla principal)
-│   │       ├── Dashboard.jsx   Estadísticas
-│   │       ├── Contacts.jsx    Lista/tarjetas de contactos
-│   │       ├── ContactDetail.jsx  Chat individual con polling automático
-│   │       ├── Broadcast.jsx   Envío masivo + historial
-│   │       └── Categories.jsx  Gestión de categorías
+│   │       ├── Login.jsx          Pantalla de inicio de sesión
+│   │       ├── Inbox.jsx          Bandeja de conversaciones
+│   │       ├── Dashboard.jsx      Estadísticas
+│   │       ├── Contacts.jsx       Lista/tarjetas de contactos
+│   │       ├── ContactDetail.jsx  Chat individual + notas + recordatorios
+│   │       ├── Broadcast.jsx      Envío masivo + historial + programación
+│   │       ├── Categories.jsx     Gestión de categorías
+│   │       ├── Pipeline.jsx       Vista Kanban del pipeline de ventas
+│   │       ├── Templates.jsx      Plantillas de mensajes
+│   │       ├── AutoReply.jsx      Reglas de respuesta automática
+│   │       ├── Sessions.jsx       Gestión de sesiones WAHA + escaneo QR
+│   │       ├── Team.jsx           Gestión de usuarios del equipo
+│   │       ├── GlobalSearch.jsx   Búsqueda global
+│   │       ├── Reminders.jsx      Lista de recordatorios pendientes
+│   │       ├── Trash.jsx          Papelera de contactos
+│   │       ├── WebhookLog.jsx     Log de eventos WAHA
+│   │       └── Settings.jsx       Configuración general (admin)
 │   ├── Dockerfile
 │   ├── nginx.conf
 │   └── package.json
 │
 ├── docker-compose.yml
 ├── .env.example
-├── .gitignore
+├── setup.sh                       Instalador interactivo
 └── README.md
 ```
 
@@ -337,8 +313,12 @@ rinran-crm/
 | Runtime | Node.js 22 |
 | Framework | Express 4 |
 | Base de datos | SQLite vía `node:sqlite` (nativo Node.js 22) |
+| Autenticación | JWT (`jsonwebtoken`) + bcrypt |
+| 2FA | TOTP (`speakeasy`) |
 | Teléfonos | libphonenumber-js |
-| WhatsApp | OpenWA server (vía REST API) |
+| WhatsApp | WAHA (devlikeapro/waha) vía REST API |
+| QR codes | `qrcode` (generado en el backend, sin servicios externos) |
+| Push | Web Push API (`web-push`) |
 | HTTP client | Axios |
 
 ### Frontend
@@ -349,14 +329,17 @@ rinran-crm/
 | Estilos | Tailwind CSS 3 |
 | Build | Vite 5 |
 | Iconos | Lucide React |
+| Real-time | Server-Sent Events (SSE) |
 | Servidor | Nginx (producción) |
 
 ### Infraestructura
 | Elemento | Detalle |
 |----------|---------|
 | Contenedores | Docker + Docker Compose |
+| Servicios | `backend` (Express), `frontend` (Nginx), `waha` (WhatsApp) |
 | Red interna | Bridge `rinran` |
-| Persistencia | Docker volume `crm-data` → `/data/rinran.db` |
+| Persistencia CRM | Docker volume `crm-data` → `/data/rinran.db` |
+| Persistencia WAHA | Docker volume `waha-data` → `/app/.sessions` |
 
 ---
 
@@ -364,15 +347,32 @@ rinran-crm/
 
 Base URL: `http://localhost:3000/api`
 
+Todas las rutas (excepto `/api/auth` y `/webhook`) requieren el header:
+```
+Authorization: Bearer <jwt-token>
+```
+
+### Autenticación
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `POST` | `/auth/login` | Login. Body: `email`, `password`. Devuelve `token` |
+| `GET` | `/auth/me` | Perfil del usuario autenticado |
+| `POST` | `/auth/2fa/setup` | Iniciar configuración de 2FA (genera QR TOTP) |
+| `POST` | `/auth/2fa/verify` | Activar 2FA con el código del autenticador |
+| `POST` | `/auth/2fa/disable` | Desactivar 2FA con contraseña actual |
+
 ### Contactos
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/contacts` | Lista paginada. Params: `search`, `category_id`, `status`, `page`, `limit` |
-| `GET` | `/contacts/:id` | Detalle + historial de mensajes |
-| `POST` | `/contacts` | Crear. Body: `name`, `phone`, `category_id?`, `notes?` |
-| `PATCH` | `/contacts/:id` | Actualizar. Body: `name?`, `category_id?`, `notes?`, `status?` |
-| `DELETE` | `/contacts/:id` | Eliminar contacto y sus mensajes |
+| `GET` | `/contacts` | Lista paginada. Params: `search`, `category_id`, `tag_id`, `status`, `pipeline_stage`, `assigned_to`, `page`, `limit` |
+| `GET` | `/contacts/:id` | Detalle + historial de mensajes + notas + campos custom |
+| `POST` | `/contacts` | Crear. Body: `name`, `phone`, `category_id?`, `notes?`, `pipeline_stage?` |
+| `PATCH` | `/contacts/:id` | Actualizar nombre, categoría, notas, estado, pipeline, asignado |
+| `DELETE` | `/contacts/:id` | Mover a papelera (soft delete) |
+| `GET` | `/contacts/:id/photo` | Proxy de foto de perfil |
+| `POST` | `/contacts/:id/photo` | Subir foto de perfil (base64, max 5MB) |
 
 ### Categorías
 
@@ -383,38 +383,157 @@ Base URL: `http://localhost:3000/api`
 | `PATCH` | `/categories/:id` | Actualizar nombre o color |
 | `DELETE` | `/categories/:id` | Eliminar |
 
+### Tags
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/tags` | Lista de tags |
+| `POST` | `/tags` | Crear. Body: `name`, `color` |
+| `PATCH` | `/tags/:id` | Actualizar |
+| `DELETE` | `/tags/:id` | Eliminar |
+
 ### Mensajes
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `POST` | `/messages/send` | Envío individual vía OpenWA. Body: `contact_id`, `message` |
-| `POST` | `/messages/broadcast` | Envío masivo. Body: `name?`, `message`, `category_id?` |
-| `GET` | `/messages/broadcasts` | Historial de broadcasts |
+| `POST` | `/messages/send` | Texto. Body: `contact_id`, `message`, `reply_to_id?` |
+| `POST` | `/messages/send-file` | Archivo. Body: `contact_id`, `data` (base64), `filename`, `mimetype`, `caption?` |
+| `POST` | `/messages/send-voice` | Nota de voz. Body: `contact_id`, `data`, `filename`, `mimetype` |
+| `POST` | `/messages/send-location` | Ubicación. Body: `contact_id`, `latitude`, `longitude`, `title?` |
+| `POST` | `/messages/broadcast` | Masivo. Body: `name?`, `message`, `category_id?`, `tag_id?`, `pipeline_stage?`, `scheduled_at?` |
+| `GET` | `/messages/broadcasts` | Historial de broadcasts con estado por destinatario |
+
+### Plantillas
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/templates` | Lista de plantillas |
+| `POST` | `/templates` | Crear. Body: `name`, `content` |
+| `PATCH` | `/templates/:id` | Actualizar |
+| `DELETE` | `/templates/:id` | Eliminar |
+
+### Respuestas automáticas
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/auto-reply` | Lista de reglas |
+| `POST` | `/auto-reply` | Crear regla. Body: `name`, `trigger_type`, `trigger_value`, `response`, `is_active` |
+| `PATCH` | `/auto-reply/:id` | Actualizar |
+| `DELETE` | `/auto-reply/:id` | Eliminar |
 
 ### Bandeja
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/inbox` | Conversaciones ordenadas por último mensaje, con no leídos. Param: `search` |
-| `PATCH` | `/inbox/:id/read` | Marca mensajes entrantes de un contacto como leídos |
+| `GET` | `/inbox` | Conversaciones con no leídos. Param: `search` |
+| `PATCH` | `/inbox/:id/read` | Marca mensajes entrantes como leídos |
+
+### Notas internas
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/contacts/:id/notes` | Notas de un contacto |
+| `POST` | `/contacts/:id/notes` | Crear nota. Body: `content` |
+| `DELETE` | `/contacts/:id/notes/:noteId` | Eliminar nota |
+
+### Recordatorios
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/reminders` | Lista (filtro `?done=0` para pendientes) |
+| `POST` | `/reminders` | Crear. Body: `contact_id`, `title`, `due_at`, `note?` |
+| `PATCH` | `/reminders/:id` | Marcar completado o actualizar |
+| `DELETE` | `/reminders/:id` | Eliminar |
+
+### Equipo
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/team` | Lista de usuarios (admin) |
+| `POST` | `/team` | Crear usuario. Body: `email`, `password`, `name`, `role` |
+| `PATCH` | `/team/:id` | Actualizar usuario |
+| `DELETE` | `/team/:id` | Eliminar usuario |
+
+### Estadísticas
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/stats` | Resumen: total contactos, mensajes, por país, por categoría |
 
 ### Estado y Webhook
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `GET` | `/status` | Estado de conexión del CRM con el servidor OpenWA |
-| `POST` | `/webhook` | Receptor de eventos del servidor OpenWA (mensajes entrantes) |
+| `GET` | `/status` | Estado de conexión del CRM con WAHA |
+| `POST` | `/webhook` | Receptor de eventos WAHA (mensajes entrantes + ACKs) |
+| `GET` | `/webhook-log` | Log de los últimos 500 eventos recibidos |
+
+### Sesiones WAHA
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/wa/info` | Info de WAHA (versión, URL, webhook configurado) |
+| `GET` | `/wa/sessions` | Lista de sesiones |
+| `POST` | `/wa/sessions` | Crear sesión (auto-configura webhook). Body: `name`, `auto_webhook?` |
+| `GET` | `/wa/sessions/:name` | Detalle de sesión |
+| `PUT` | `/wa/sessions/:name` | Actualizar config de sesión |
+| `POST` | `/wa/sessions/:name/:action` | Acciones: `start`, `stop`, `restart`, `logout` |
+| `DELETE` | `/wa/sessions/:name` | Eliminar sesión |
+| `GET` | `/wa/sessions/:name/qr` | QR code como data URI para escanear |
+| `POST` | `/wa/sessions/:name/webhook` | Configurar webhook manualmente |
+| `GET` | `/wa/check-number` | Verificar si un número tiene WhatsApp. Param: `phone` |
+
+### Configuración
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/settings` | Config actual (nombre empresa, timezone, horario, SLA) |
+| `PUT` | `/settings` | Actualizar (admin) |
+| `POST` | `/settings/change-password` | Cambiar contraseña del usuario actual |
+| `GET` | `/settings/custom-fields` | Definiciones de campos personalizados |
+| `POST` | `/settings/custom-fields` | Crear campo. Body: `name`, `field_type`, `options_json?` |
+| `DELETE` | `/settings/custom-fields/:id` | Eliminar campo |
+| `GET` | `/settings/assignment-rules` | Reglas de asignación automática |
+| `POST` | `/settings/assignment-rules` | Crear regla. Body: `name`, `category_id`, `agent_id` |
+| `DELETE` | `/settings/assignment-rules/:id` | Eliminar regla |
+| `GET` | `/settings/smtp` | Config SMTP (admin) |
+| `PUT` | `/settings/smtp` | Actualizar SMTP |
+| `POST` | `/settings/smtp/test` | Enviar email de prueba |
+| `GET` | `/settings/outbound-webhooks` | Webhooks de salida |
+| `POST` | `/settings/outbound-webhooks` | Crear webhook. Body: `name`, `url`, `events`, `secret?` |
+| `DELETE` | `/settings/outbound-webhooks/:id` | Eliminar webhook |
+| `GET` | `/settings/api-keys` | API keys del equipo (admin) |
+| `POST` | `/settings/api-keys` | Generar API key. Body: `name` |
+| `DELETE` | `/settings/api-keys/:id` | Revocar API key |
+| `GET` | `/settings/backup` | Descargar backup de la base de datos |
+| `POST` | `/settings/restore` | Restaurar desde backup |
+
+### Otros
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/api/sse?token=<jwt>` | Stream SSE para eventos en tiempo real |
+| `POST` | `/api/sync` | Importar chats/contactos existentes desde WAHA |
+| `GET` | `/api/trash` | Contactos en la papelera |
+| `POST` | `/api/trash/:id/restore` | Restaurar contacto |
+| `DELETE` | `/api/trash/:id` | Eliminar definitivamente |
+| `GET` | `/saved-filters` | Filtros guardados del usuario |
+| `POST` | `/saved-filters` | Guardar filtro. Body: `name`, `filters_json` |
+| `DELETE` | `/saved-filters/:id` | Eliminar filtro |
+| `GET` | `/health` | Health check del backend |
 
 ---
 
 ## Formato de números
 
-OpenWA usa el formato `{número}@c.us`. El CRM convierte automáticamente:
+WAHA usa el formato `{número}@c.us`. El CRM convierte automáticamente:
 
 | Dirección | Formato | Ejemplo |
 |-----------|---------|---------|
-| CRM → OpenWA | `número@c.us` | `5491122334455@c.us` |
-| OpenWA → CRM | E.164 con `+` | `+5491122334455` |
+| CRM → WAHA | `número@c.us` | `5491122334455@c.us` |
+| WAHA → CRM | E.164 con `+` | `+5491122334455` |
+
+Los usuarios `@lid` (anónimos de WhatsApp) se resuelven automáticamente vía el endpoint `/api/{session}/lids/`.
 
 ---
 
@@ -423,36 +542,41 @@ OpenWA usa el formato `{número}@c.us`. El CRM convierte automáticamente:
 ```
   Alguien te escribe al WhatsApp
             │
-            │ OpenWA detecta el mensaje
+            │ WAHA detecta el mensaje
             ▼
-  [Servidor OpenWA]
+  [rinran-waha — contenedor Docker]
             │
             │ POST /webhook (evento tipo "message")
             ▼
-     [Rinran CRM — webhook.js]
+     [backend — webhook.js]
             │
-       ┌────┴────┐
-       │         │
-   nuevo     existente
-  contacto   contacto
-       │         │
-  se crea    se agrega
-  automát.   al historial
-       │         │
-       └────┬────┘
-            ▼
-   [Bandeja — badge de no leído]
+       ┌────┴──────────────┐
+       │                   │
+  nuevo contacto     contacto existente
+  se crea            se agrega al historial
+  automáticamente
+       │                   │
+       └────────┬──────────┘
+                │
+                │ Se verifica auto-reply (si aplica)
+                │ Se emite evento SSE al frontend
+                │ Se emite Web Push si el usuario no está activo
+                ▼
+   [Bandeja — badge de no leído + sonido]
+                │
+       ┌────────┴───────────────┐
+       │                        │
+  Respondés en el chat      Broadcast por categoría
+  (texto / archivo /        tag o etapa del pipeline
+   voz / ubicación)
             │
-       ┌────┴────┐
-       │         │
-  Respondés   Broadcast
-  en el chat  por categoría
-            │
-            ▼
-    [OpenWA envía el mensaje]
-            │
+            │ WAHA envía el mensaje
             ▼
   [WhatsApp del contacto]
+            │
+            │ WAHA recibe ACK (entregado / leído)
+            ▼
+  [Backend actualiza estado del mensaje]
 ```
 
 ---
@@ -466,8 +590,11 @@ docker compose logs -f
 # Ver logs solo del backend
 docker compose logs -f backend
 
-# Verificar conexión con OpenWA
-curl http://localhost:3000/api/status
+# Ver logs de WAHA
+docker compose logs -f waha
+
+# Verificar estado
+curl http://localhost:3000/health
 
 # Reiniciar sin rebuild
 docker compose restart backend
@@ -490,7 +617,6 @@ docker compose down
 - VPS con Ubuntu 22.04+ (o cualquier Linux)
 - Docker + Docker Compose
 - Dominio apuntando al IP del servidor
-- Servidor OpenWA accesible desde el VPS
 
 ### Instalar Docker en Ubuntu
 
@@ -500,14 +626,12 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### Clonar y configurar
+### Clonar, configurar y levantar
 
 ```bash
 git clone https://github.com/marcosfermin/rinran-crm.git
 cd rinran-crm
-cp .env.example .env
-nano .env
-docker compose up -d --build
+./setup.sh
 ```
 
 ### Configurar HTTPS con Nginx + Certbot
@@ -538,21 +662,25 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d tudominio.com
 ```
 
-El CRM queda en `https://tudominio.com` y el webhook en `https://tudominio.com/webhook`.
+El CRM queda en `https://tudominio.com`. El webhook de WAHA apunta internamente a `http://backend:4000/webhook` — no necesitás exposición pública del webhook.
 
 ---
 
-## Checklist completo
+## Checklist de instalación
 
-**Servidor OpenWA**
-- [ ] OpenWA corriendo y conectado al WhatsApp (QR escaneado)
-- [ ] `curl http://openwa-url:puerto/getConnectionState` responde `CONNECTED`
-- [ ] Webhook configurado en OpenWA apuntando a `http://rinran-backend:4000/webhook` (o URL pública)
+**Requisitos**
+- [ ] Docker y Docker Compose v2 instalados
 
 **CRM**
-- [ ] `.env` completado con `OPENWA_URL` y `OPENWA_API_KEY` (si aplica)
+- [ ] `.env` creado (`./setup.sh` o manual con `.env.example`)
 - [ ] `docker compose up -d --build` sin errores
-- [ ] `GET /api/status` responde `connected: true`
+- [ ] `GET /health` responde `{ "status": "ok" }`
+- [ ] Login en el CRM con las credenciales configuradas
+
+**WhatsApp**
+- [ ] Ir a **WhatsApp → Sesiones** en el CRM
+- [ ] Crear sesión y escanear el QR con WhatsApp
+- [ ] Estado de la sesión pasa a `WORKING`
 
 **Prueba de mensajes**
 - [ ] Enviar un mensaje desde otro WhatsApp al número conectado
@@ -563,9 +691,6 @@ El CRM queda en `https://tudominio.com` y el webhook en `https://tudominio.com/w
 - [ ] Abrir el CRM desde Safari (iPhone) o Chrome (Android)
 - [ ] Agregar a pantalla de inicio
 - [ ] Verificar que abre en pantalla completa
-
-**Campaña Meta Ads (opcional)**
-- [ ] Campaña creada con objetivo Mensajes y CTA a WhatsApp
 
 ---
 

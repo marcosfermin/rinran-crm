@@ -127,6 +127,9 @@ router.post('/', async (req, res) => {
     // Emit SSE to connected browser clients
     try { sseEmit('message', { contact_id: contact.id, phone: contact.phone, name: contact.name }); } catch {}
 
+    // Fire outbound webhooks
+    setImmediate(() => fireOutboundWebhooks(db, 'message.inbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: text }));
+
     // Auto-reply rules
     setImmediate(() => processAutoReply(db, contact, text, isNew));
 
@@ -134,6 +137,25 @@ router.post('/', async (req, res) => {
     console.error('[webhook] Error:', e.message);
   }
 });
+
+async function fireOutboundWebhooks(db, eventType, payload) {
+  try {
+    const hooks = db.prepare("SELECT * FROM outbound_webhooks WHERE is_active = 1 AND (events = ? OR events LIKE ? OR events LIKE ? OR events LIKE ?)")
+      .all(eventType, `${eventType},%`, `%,${eventType}`, `%,${eventType},%`);
+    const axios = require('axios');
+    const crypto = require('crypto');
+    for (const hook of hooks) {
+      try {
+        const body = JSON.stringify({ event: eventType, timestamp: new Date().toISOString(), data: payload });
+        const headers = { 'Content-Type': 'application/json' };
+        if (hook.secret) {
+          headers['X-Rinran-Signature'] = 'sha256=' + crypto.createHmac('sha256', hook.secret).update(body).digest('hex');
+        }
+        await axios.post(hook.url, JSON.parse(body), { headers, timeout: 10000 });
+      } catch {}
+    }
+  } catch {}
+}
 
 function isWithinHours(rangeStr) {
   const parts = rangeStr?.split('-');

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const express_ref = express;
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const { getDb } = require('../db');
@@ -136,6 +137,143 @@ router.patch('/assignment-rules/:id', (req, res) => {
 router.delete('/assignment-rules/:id', (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
   getDb().prepare('DELETE FROM assignment_rules WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Backup / Restore ──────────────────────────────────────────────────────────
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../../data/rinran.db');
+
+router.get('/backup', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  if (!fs.existsSync(DB_PATH)) return res.status(404).json({ error: 'Base de datos no encontrada' });
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Disposition', `attachment; filename="rinran-backup-${date}.db"`);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  fs.createReadStream(DB_PATH).pipe(res);
+});
+
+router.post('/restore', express_ref.raw({ type: 'application/octet-stream', limit: '100mb' }), (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 16 || buf.toString('ascii', 0, 6) !== 'SQLite') {
+    return res.status(400).json({ error: 'Archivo no válido. Debe ser una base de datos SQLite.' });
+  }
+  const tmpPath = DB_PATH + '.restore_tmp';
+  fs.writeFileSync(tmpPath, buf);
+  fs.renameSync(tmpPath, DB_PATH);
+  res.json({ ok: true, message: 'Base de datos restaurada. Reinicia el servidor para aplicar los cambios.' });
+});
+
+// ── SMTP ──────────────────────────────────────────────────────────────────────
+const SMTP_KEYS = ['smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_from', 'smtp_enabled'];
+
+router.get('/smtp', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${SMTP_KEYS.map(() => '?').join(',')})`)
+    .all(...SMTP_KEYS);
+  const result = { smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: '', smtp_enabled: '0' };
+  rows.forEach(r => { result[r.key] = r.value; });
+  res.json({ ...result, smtp_pass: result.smtp_pass ? '••••••' : '' });
+});
+
+router.put('/smtp', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const allowed = SMTP_KEYS;
+  for (const key of allowed) {
+    if (req.body[key] !== undefined && !(key === 'smtp_pass' && req.body[key] === '••••••')) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(req.body[key]));
+    }
+  }
+  res.json({ ok: true });
+});
+
+router.post('/smtp/test', async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'to (email destino) requerido' });
+  const db = getDb();
+  const rows = db.prepare(`SELECT key, value FROM settings WHERE key IN (${SMTP_KEYS.map(() => '?').join(',')})`)
+    .all(...SMTP_KEYS);
+  const cfg = {};
+  rows.forEach(r => { cfg[r.key] = r.value; });
+  if (!cfg.smtp_host) return res.status(400).json({ error: 'SMTP no configurado' });
+  try {
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: cfg.smtp_host, port: parseInt(cfg.smtp_port) || 587,
+      secure: parseInt(cfg.smtp_port) === 465,
+      auth: cfg.smtp_user ? { user: cfg.smtp_user, pass: cfg.smtp_pass } : undefined,
+    });
+    await transporter.sendMail({
+      from: cfg.smtp_from || cfg.smtp_user,
+      to,
+      subject: 'Test email — Rinran CRM',
+      text: 'Este es un mensaje de prueba enviado desde Rinran CRM.',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Outbound Webhooks ─────────────────────────────────────────────────────────
+router.get('/outbound-webhooks', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  res.json(getDb().prepare('SELECT id, name, url, events, is_active, created_at FROM outbound_webhooks ORDER BY id').all());
+});
+
+router.post('/outbound-webhooks', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const { name, url, events = 'message.inbound', secret } = req.body;
+  if (!name || !url) return res.status(400).json({ error: 'name y url requeridos' });
+  const db = getDb();
+  const r = db.prepare('INSERT INTO outbound_webhooks (name, url, events, secret) VALUES (?, ?, ?, ?)')
+    .run(name, url, events, secret || null);
+  res.status(201).json(db.prepare('SELECT id, name, url, events, is_active, created_at FROM outbound_webhooks WHERE id = ?').get(r.lastInsertRowid));
+});
+
+router.patch('/outbound-webhooks/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const { is_active } = req.body;
+  getDb().prepare('UPDATE outbound_webhooks SET is_active = ? WHERE id = ?').run(is_active ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+
+router.delete('/outbound-webhooks/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  getDb().prepare('DELETE FROM outbound_webhooks WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+router.get('/api-keys', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  res.json(getDb().prepare('SELECT id, name, key_prefix, scopes, is_active, last_used_at, created_at FROM api_keys WHERE created_by = ? ORDER BY id DESC').all(req.user.id));
+});
+
+router.post('/api-keys', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const { name, scopes = 'read' } = req.body;
+  if (!name) return res.status(400).json({ error: 'name requerido' });
+  const rawKey = 'rk_' + crypto.randomBytes(24).toString('hex');
+  const prefix = rawKey.slice(0, 10);
+  const hash = crypto.createHash('sha256').update(rawKey).digest('hex');
+  const db = getDb();
+  const r = db.prepare('INSERT INTO api_keys (name, key_prefix, key_hash, scopes, created_by) VALUES (?, ?, ?, ?, ?)')
+    .run(name, prefix, hash, scopes, req.user.id);
+  const row = db.prepare('SELECT id, name, key_prefix, scopes, is_active, last_used_at, created_at FROM api_keys WHERE id = ?').get(r.lastInsertRowid);
+  res.status(201).json({ ...row, key: rawKey });
+});
+
+router.delete('/api-keys/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  getDb().prepare('DELETE FROM api_keys WHERE id = ? AND created_by = ?').run(req.params.id, req.user.id);
   res.json({ ok: true });
 });
 

@@ -41,7 +41,10 @@ router.get('/', (req, res) => {
   const total = db.prepare(`SELECT COUNT(*) as n FROM contacts c WHERE ${whereClause}`).get(...params).n;
   const contacts = db.prepare(`
     SELECT c.*, cat.name as category_name, cat.color as category_color,
-           u.name as assigned_name
+           u.name as assigned_name,
+           (SELECT GROUP_CONCAT(t.name || ':' || t.color || ':' || t.id, '|')
+            FROM contact_tags ct JOIN tags t ON ct.tag_id = t.id
+            WHERE ct.contact_id = c.id) as tags_raw
     FROM contacts c
     LEFT JOIN categories cat ON c.category_id = cat.id
     LEFT JOIN users u ON c.assigned_to = u.id
@@ -50,7 +53,13 @@ router.get('/', (req, res) => {
     LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);
 
-  res.json({ contacts, total, page: parseInt(page), limit: parseInt(limit) });
+  const parsed = contacts.map(c => ({
+    ...c,
+    tags: c.tags_raw ? c.tags_raw.split('|').map(t => { const [name, color, id] = t.split(':'); return { id: parseInt(id), name, color }; }) : [],
+    tags_raw: undefined,
+  }));
+
+  res.json({ contacts: parsed, total, page: parseInt(page), limit: parseInt(limit) });
 });
 
 // GET /contacts/export — CSV export
@@ -148,6 +157,23 @@ router.post('/bulk', (req, res) => {
   res.json({ ok: true, affected: ids.length });
 });
 
+// GET /contacts/:id/export-chat — download conversation as TXT
+router.get('/:id/export-chat', (req, res) => {
+  const db = getDb();
+  const contact = db.prepare('SELECT name, phone FROM contacts WHERE id = ?').get(req.params.id);
+  if (!contact) return res.status(404).json({ error: 'Not found' });
+  const messages = db.prepare('SELECT direction, content, sent_at FROM messages WHERE contact_id = ? ORDER BY sent_at ASC').all(req.params.id);
+  const lines = [`Conversación con ${contact.name} (${contact.phone})`, `Exportado: ${new Date().toLocaleString('es')}`, '='.repeat(60), ''];
+  for (const m of messages) {
+    const ts = new Date(m.sent_at.replace(' ', 'T') + 'Z').toLocaleString('es');
+    const who = m.direction === 'inbound' ? contact.name : 'Yo';
+    lines.push(`[${ts}] ${who}: ${m.content}`);
+  }
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="chat_${contact.phone}.txt"`);
+  res.send(lines.join('\n'));
+});
+
 // GET /contacts/:id
 router.get('/:id', (req, res) => {
   const db = getDb();
@@ -171,7 +197,18 @@ router.get('/:id', (req, res) => {
     WHERE a.contact_id = ? ORDER BY a.created_at DESC LIMIT 50
   `).all(req.params.id);
 
-  res.json({ ...contact, messages, activity });
+  const tags = db.prepare(`
+    SELECT t.* FROM tags t JOIN contact_tags ct ON ct.tag_id = t.id WHERE ct.contact_id = ? ORDER BY t.name
+  `).all(req.params.id);
+
+  const customFields = db.prepare(`
+    SELECT d.id as field_def_id, d.name, d.field_type, d.options_json, d.sort_order, v.value
+    FROM custom_field_definitions d
+    LEFT JOIN custom_field_values v ON v.field_def_id = d.id AND v.contact_id = ?
+    ORDER BY d.sort_order, d.id
+  `).all(req.params.id);
+
+  res.json({ ...contact, messages, activity, tags, customFields });
 });
 
 // POST /contacts

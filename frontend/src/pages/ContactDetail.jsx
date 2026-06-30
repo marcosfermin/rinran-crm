@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -108,6 +108,12 @@ export default function ContactDetail() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
+  const [notes, setNotes] = useState([]);
+  const [noteText, setNoteText] = useState('');
+  const [allTags, setAllTags] = useState([]);
+  const [customFields, setCustomFields] = useState([]);
+  const [customFieldEdits, setCustomFieldEdits] = useState({});
+  const [savingFields, setSavingFields] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const photoInputRef = useRef(null);
@@ -118,14 +124,26 @@ export default function ContactDetail() {
       if (!d) return;
       setData(d);
       setEditForm({ name: d.name, category_id: d.category_id || '', notes: d.notes || '', pipeline_stage: d.pipeline_stage || 'nuevo', assigned_to: d.assigned_to || '' });
+      if (d.customFields) {
+        setCustomFields(d.customFields);
+        const edits = {};
+        d.customFields.forEach(f => { edits[f.field_def_id] = f.value || ''; });
+        setCustomFieldEdits(edits);
+      }
     });
+  }
+
+  function loadNotes() {
+    apiFetch(`/api/contacts/${id}/notes`).then(r => r?.json()).then(d => d && setNotes(Array.isArray(d) ? d : []));
   }
 
   useEffect(() => {
     load();
+    loadNotes();
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(d));
     apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
     apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
+    apiFetch('/api/tags').then(r => r?.json()).then(d => d && setAllTags(Array.isArray(d) ? d : []));
     apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
   }, [id]);
 
@@ -191,6 +209,39 @@ export default function ContactDetail() {
   async function setConvStatus(status) {
     await apiFetch(`/api/contacts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conv_status: status }) });
     load();
+  }
+
+  async function addNote() {
+    if (!noteText.trim()) return;
+    await apiFetch(`/api/contacts/${id}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: noteText.trim() }) });
+    setNoteText(''); loadNotes();
+  }
+
+  async function deleteNote(noteId) {
+    await apiFetch(`/api/contacts/${id}/notes/${noteId}`, { method: 'DELETE' });
+    setNotes(prev => prev.filter(n => n.id !== noteId));
+  }
+
+  async function toggleTag(tagId) {
+    const has = data?.tags?.some(t => t.id === tagId);
+    if (has) {
+      await apiFetch(`/api/tags/contact/${id}/${tagId}`, { method: 'DELETE' });
+    } else {
+      await apiFetch(`/api/tags/contact/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tag_id: tagId }) });
+    }
+    load();
+  }
+
+  async function saveCustomFields() {
+    setSavingFields(true);
+    const values = Object.entries(customFieldEdits).map(([field_def_id, value]) => ({ field_def_id: parseInt(field_def_id), value }));
+    await apiFetch(`/api/tags/contact/${id}/custom-fields`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }) });
+    setSavingFields(false);
+    load();
+  }
+
+  function exportChat() {
+    window.location.href = `/api/contacts/${id}/export-chat`;
   }
 
   async function saveEdit() {
@@ -289,10 +340,10 @@ export default function ContactDetail() {
       {/* Info / edit panel */}
       {showInfo && (
         <div className="bg-gray-900/80 border-b border-gray-800 px-4 py-3 space-y-3 shrink-0">
-          <div className="flex gap-3 border-b border-gray-800 -mx-4 px-4">
-            {[['chat', MessageSquare, 'Info'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
+          <div className="flex gap-3 border-b border-gray-800 -mx-4 px-4 overflow-x-auto">
+            {[['chat', MessageSquare, 'Info'], ['notes', StickyNote, 'Notas'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-1.5 pb-2 px-1 text-xs font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-green-500 text-green-400' : 'border-transparent text-gray-500 hover:text-white'}`}>
+                className={`flex items-center gap-1.5 pb-2 px-1 text-xs font-medium border-b-2 transition-colors shrink-0 ${activeTab === tab ? 'border-green-500 text-green-400' : 'border-transparent text-gray-500 hover:text-white'}`}>
                 <Icon size={12} /> {label}
               </button>
             ))}
@@ -309,6 +360,26 @@ export default function ContactDetail() {
                     <span className="text-gray-600 shrink-0">{new Date(a.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('es')}</span>
                   </div>
                 ))}
+            </div>
+          ) : activeTab === 'notes' ? (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <input value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => e.key === 'Enter' && addNote()}
+                  placeholder="Nueva nota interna..."
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                <button onClick={addNote} className="px-3 py-1.5 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 rounded-lg text-xs"><Plus size={13} /></button>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {!notes.length ? <p className="text-xs text-gray-600">Sin notas internas</p> : notes.map(n => (
+                  <div key={n.id} className="bg-yellow-900/10 border border-yellow-800/30 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <div className="flex-1">
+                      <p className="text-xs text-yellow-200">{n.content}</p>
+                      <p className="text-[10px] text-gray-600 mt-0.5">{n.user_name} · {new Date(n.created_at.replace(' ', 'T') + 'Z').toLocaleString('es')}</p>
+                    </div>
+                    <button onClick={() => deleteNote(n.id)} className="p-0.5 text-gray-600 hover:text-red-400 transition-colors shrink-0"><Trash2 size={11} /></button>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : editing ? (
             <div className="grid grid-cols-2 gap-3">
@@ -349,20 +420,72 @@ export default function ContactDetail() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-3 text-sm">
-              <div><span className="text-gray-500 text-xs">País</span><p className="text-gray-200">{data.country_flag} {data.country_name}</p></div>
-              <div>
-                <span className="text-gray-500 text-xs">Categoría</span>
-                <p>{cat ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span> : <span className="text-gray-600">—</span>}</p>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-3 text-sm">
+                <div><span className="text-gray-500 text-xs">País</span><p className="text-gray-200">{data.country_flag} {data.country_name}</p></div>
+                <div>
+                  <span className="text-gray-500 text-xs">Categoría</span>
+                  <p>{cat ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span> : <span className="text-gray-600">—</span>}</p>
+                </div>
+                <div><span className="text-gray-500 text-xs">Pipeline</span><p className="text-gray-200">{stage?.label || '—'}</p></div>
+                <div>
+                  <span className="text-gray-500 text-xs">Estado</span>
+                  <p className={`flex items-center gap-1 text-xs ${convStatus.color}`}><ConvIcon size={11} /> {convStatus.label}</p>
+                </div>
+                {data.assigned_name && <div><span className="text-gray-500 text-xs">Agente</span><p className="text-gray-200 flex items-center gap-1"><UserCheck size={12} />{data.assigned_name}</p></div>}
+                <div><span className="text-gray-500 text-xs">Fuente</span><p className="text-gray-200">{data.source}</p></div>
+                {data.notes && <div className="w-full"><span className="text-gray-500 text-xs">Notas</span><p className="text-gray-300 text-sm mt-0.5">{data.notes}</p></div>}
               </div>
-              <div><span className="text-gray-500 text-xs">Pipeline</span><p className="text-gray-200">{stage?.label || '—'}</p></div>
-              <div>
-                <span className="text-gray-500 text-xs">Estado</span>
-                <p className={`flex items-center gap-1 text-xs ${convStatus.color}`}><ConvIcon size={11} /> {convStatus.label}</p>
-              </div>
-              {data.assigned_name && <div><span className="text-gray-500 text-xs">Agente</span><p className="text-gray-200 flex items-center gap-1"><UserCheck size={12} />{data.assigned_name}</p></div>}
-              <div><span className="text-gray-500 text-xs">Fuente</span><p className="text-gray-200">{data.source}</p></div>
-              {data.notes && <div className="w-full"><span className="text-gray-500 text-xs">Notas</span><p className="text-gray-300 text-sm mt-0.5">{data.notes}</p></div>}
+
+              {/* Tags */}
+              {allTags.length > 0 && (
+                <div>
+                  <span className="text-gray-500 text-xs flex items-center gap-1 mb-1.5"><Tag size={10} /> Tags</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allTags.map(t => {
+                      const active = data.tags?.some(dt => dt.id === t.id);
+                      return (
+                        <button key={t.id} onClick={() => toggleTag(t.id)}
+                          className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors font-medium ${active ? 'opacity-100' : 'opacity-40 hover:opacity-70'}`}
+                          style={{ backgroundColor: active ? t.color + '22' : 'transparent', color: t.color, borderColor: t.color + '66' }}>
+                          {t.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom fields */}
+              {customFields.length > 0 && (
+                <div>
+                  <span className="text-gray-500 text-xs mb-1.5 block">Campos personalizados</span>
+                  <div className="space-y-1.5">
+                    {customFields.map(f => (
+                      <div key={f.field_def_id} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-24 shrink-0 truncate">{f.name}</span>
+                        <input
+                          type={f.field_type === 'number' ? 'number' : f.field_type === 'date' ? 'date' : f.field_type === 'url' ? 'url' : 'text'}
+                          value={customFieldEdits[f.field_def_id] ?? ''}
+                          onChange={e => setCustomFieldEdits(prev => ({ ...prev, [f.field_def_id]: e.target.value }))}
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
+                          placeholder={`Valor de ${f.name}...`}
+                        />
+                      </div>
+                    ))}
+                    <button onClick={saveCustomFields} disabled={savingFields}
+                      className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 mt-1">
+                      <Check size={11} /> {savingFields ? 'Guardando...' : 'Guardar campos'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Export chat */}
+              <button onClick={exportChat}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors">
+                <Download size={12} /> Exportar chat (.txt)
+              </button>
             </div>
           )}
         </div>

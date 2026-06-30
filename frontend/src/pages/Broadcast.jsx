@@ -17,8 +17,9 @@ const STAGES = [
 
 export default function Broadcast() {
   const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
-  const [form, setForm] = useState({ name: '', message: '', category_id: '', pipeline_stage: '', scheduled_at: '' });
+  const [form, setForm] = useState({ name: '', message: '', category_id: '', pipeline_stage: '', tag_id: '', scheduled_at: '' });
   const [attachFile, setAttachFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [sending, setSending] = useState(false);
@@ -29,6 +30,7 @@ export default function Broadcast() {
 
   useEffect(() => {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
+    apiFetch('/api/tags').then(r => r?.json()).then(d => d && setTags(Array.isArray(d) ? d : []));
     loadBroadcasts();
   }, []);
 
@@ -45,7 +47,7 @@ export default function Broadcast() {
     if (d) setPreview(d.total ?? 0);
   }
 
-  useEffect(() => { previewCount(); }, [form.category_id, form.pipeline_stage]);
+  useEffect(() => { previewCount(); }, [form.category_id, form.pipeline_stage, form.tag_id]);
 
   function handleFileSelect(e) {
     const file = e.target.files?.[0];
@@ -71,6 +73,7 @@ export default function Broadcast() {
       message: form.message,
       category_id: form.category_id || null,
       pipeline_stage: form.pipeline_stage || null,
+      tag_id: form.tag_id || null,
       scheduled_at: form.scheduled_at || null,
     };
     if (attachFile) {
@@ -84,7 +87,7 @@ export default function Broadcast() {
         ? `Broadcast programado para ${new Date(form.scheduled_at).toLocaleString('es')} — ${res.total} destinatarios`
         : `Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
     }
-    setForm({ name: '', message: '', category_id: '', pipeline_stage: '', scheduled_at: '' });
+    setForm({ name: '', message: '', category_id: '', pipeline_stage: '', tag_id: '', scheduled_at: '' });
     setAttachFile(null);
     setSending(false);
     setTimeout(() => { setSuccess(null); loadBroadcasts(); }, 4000);
@@ -144,6 +147,16 @@ export default function Broadcast() {
                 </select>
               </div>
             </div>
+            {tags.length > 0 && (
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Tag</label>
+                <select value={form.tag_id} onChange={e => setForm(f => ({ ...f, tag_id: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                  <option value="">Todos los tags</option>
+                  {tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Mensaje {attachFile ? '(descripción)' : '*'}</label>
               <textarea required={!attachFile} value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} rows={4}

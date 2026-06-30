@@ -80,6 +80,52 @@ function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS internal_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#6366f1',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS contact_tags (
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (contact_id, tag_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_field_definitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      field_type TEXT NOT NULL DEFAULT 'text',
+      options_json TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_field_values (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      field_def_id INTEGER NOT NULL REFERENCES custom_field_definitions(id) ON DELETE CASCADE,
+      value TEXT,
+      UNIQUE(contact_id, field_def_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_internal_notes_contact ON internal_notes(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_contact_tags ON contact_tags(contact_id);
+
     CREATE TABLE IF NOT EXISTS auto_reply_rules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -145,6 +191,7 @@ function initSchema() {
   try { db.exec('ALTER TABLE messages ADD COLUMN reply_to_wa_id TEXT'); } catch {}
   try { db.exec('ALTER TABLE broadcasts ADD COLUMN scheduled_at TEXT'); } catch {}
   try { db.exec("ALTER TABLE broadcasts ADD COLUMN pipeline_stage TEXT"); } catch {}
+  try { db.exec("ALTER TABLE broadcasts ADD COLUMN tag_id INTEGER"); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

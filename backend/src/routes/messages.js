@@ -104,13 +104,14 @@ router.post('/send-file', async (req, res) => {
 // POST /messages/broadcast — bulk send (immediate or scheduled)
 router.post('/broadcast', async (req, res) => {
   const db = getDb();
-  const { name, message, category_id, pipeline_stage, file, scheduled_at } = req.body;
+  const { name, message, category_id, pipeline_stage, tag_id, file, scheduled_at } = req.body;
   if (!message && !file) return res.status(400).json({ error: 'message or file required' });
 
-  let contactQuery = "SELECT * FROM contacts WHERE status = 'active'";
+  let contactQuery = "SELECT c.* FROM contacts c WHERE c.status = 'active'";
   const contactParams = [];
-  if (category_id) { contactQuery += ' AND category_id = ?'; contactParams.push(category_id); }
-  if (pipeline_stage) { contactQuery += ' AND pipeline_stage = ?'; contactParams.push(pipeline_stage); }
+  if (category_id) { contactQuery += ' AND c.category_id = ?'; contactParams.push(category_id); }
+  if (pipeline_stage) { contactQuery += ' AND c.pipeline_stage = ?'; contactParams.push(pipeline_stage); }
+  if (tag_id) { contactQuery += ' AND EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_id = c.id AND ct.tag_id = ?)'; contactParams.push(tag_id); }
   const contacts = db.prepare(contactQuery).all(...contactParams);
 
   let broadcastFileUrl = null, broadcastFilename = null, broadcastMimetype = null;
@@ -127,9 +128,9 @@ router.post('/broadcast', async (req, res) => {
 
   const broadcastStatus = scheduled_at ? 'scheduled' : 'sending';
   const broadcastRow = db.prepare(`
-    INSERT INTO broadcasts (name, message, category_id, pipeline_stage, total_recipients, status, media_url, media_type, media_filename, scheduled_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(name || 'Broadcast', message || '', category_id || null, pipeline_stage || null,
+    INSERT INTO broadcasts (name, message, category_id, pipeline_stage, tag_id, total_recipients, status, media_url, media_type, media_filename, scheduled_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name || 'Broadcast', message || '', category_id || null, pipeline_stage || null, tag_id || null,
          contacts.length, broadcastStatus, broadcastFileUrl, broadcastMimetype, broadcastFilename, scheduled_at || null);
   const broadcastId = broadcastRow.lastInsertRowid;
 
@@ -152,10 +153,11 @@ async function fireBroadcast(db, broadcastId) {
   const broadcast = db.prepare('SELECT * FROM broadcasts WHERE id = ?').get(broadcastId);
   if (!broadcast) return;
 
-  let contactQuery = "SELECT * FROM contacts WHERE status = 'active'";
+  let contactQuery = "SELECT c.* FROM contacts c WHERE c.status = 'active'";
   const contactParams = [];
-  if (broadcast.category_id) { contactQuery += ' AND category_id = ?'; contactParams.push(broadcast.category_id); }
-  if (broadcast.pipeline_stage) { contactQuery += ' AND pipeline_stage = ?'; contactParams.push(broadcast.pipeline_stage); }
+  if (broadcast.category_id) { contactQuery += ' AND c.category_id = ?'; contactParams.push(broadcast.category_id); }
+  if (broadcast.pipeline_stage) { contactQuery += ' AND c.pipeline_stage = ?'; contactParams.push(broadcast.pipeline_stage); }
+  if (broadcast.tag_id) { contactQuery += ' AND EXISTS (SELECT 1 FROM contact_tags ct WHERE ct.contact_id = c.id AND ct.tag_id = ?)'; contactParams.push(broadcast.tag_id); }
   const contacts = db.prepare(contactQuery).all(...contactParams);
 
   db.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").run(broadcastId);

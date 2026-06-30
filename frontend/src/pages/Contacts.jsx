@@ -32,6 +32,8 @@ export default function Contacts() {
   const [filterName, setFilterName] = useState('');
   const [showMerge, setShowMerge] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
+  const [tagFilter, setTagFilter] = useState('');
+  const [allTags, setAllTags] = useState([]);
   const csvInputRef = useRef(null);
   const limit = 20;
 
@@ -41,14 +43,22 @@ export default function Contacts() {
     if (categoryFilter) params.set('category_id', categoryFilter);
     if (stageFilter) params.set('pipeline_stage', stageFilter);
     if (convStatusFilter) params.set('conv_status', convStatusFilter);
-    apiFetch(`/api/contacts?${params}`).then(r => r?.json()).then(d => d && (setContacts(d.contacts ?? []), setTotal(d.total ?? 0)));
+    apiFetch(`/api/contacts?${params}`).then(r => r?.json()).then(d => {
+      if (!d) return;
+      let list = d.contacts ?? [];
+      // Client-side tag filter (backend doesn't support it yet via query)
+      if (tagFilter) list = list.filter(c => c.tags?.some(t => t.id === parseInt(tagFilter)));
+      setContacts(list);
+      setTotal(tagFilter ? list.length : (d.total ?? 0));
+    });
     setSelected(new Set());
-  }, [search, categoryFilter, stageFilter, convStatusFilter, page]);
+  }, [search, categoryFilter, stageFilter, convStatusFilter, tagFilter, page]);
 
   useEffect(() => {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
     apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
     apiFetch('/api/saved-filters').then(r => r?.json()).then(d => d && setSavedFilters(Array.isArray(d) ? d : []));
+    apiFetch('/api/tags').then(r => r?.json()).then(d => d && setAllTags(Array.isArray(d) ? d : []));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -141,7 +151,7 @@ export default function Contacts() {
   }
 
   const pages = Math.ceil(total / limit);
-  const hasFilters = search || categoryFilter || stageFilter || convStatusFilter;
+  const hasFilters = search || categoryFilter || stageFilter || convStatusFilter || tagFilter;
 
   return (
     <div className="p-4 space-y-3">
@@ -217,13 +227,20 @@ export default function Contacts() {
             <option value="pending">Pendiente</option>
             <option value="closed">Cerrado</option>
           </select>
+          {allTags.length > 0 && (
+            <select value={tagFilter} onChange={e => { setTagFilter(e.target.value); setPage(1); }}
+              className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-400 focus:outline-none focus:border-green-500">
+              <option value="">Tags: todos</option>
+              {allTags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
           {hasFilters && (
             <>
               <button onClick={() => { if (!showSaveFilter) setShowSaveFilter(true); }}
                 className="flex items-center gap-1 text-xs text-blue-400 border border-blue-800 hover:bg-blue-900/20 px-2.5 py-1.5 rounded-lg transition-colors">
                 <BookmarkPlus size={12} /> Guardar filtro
               </button>
-              <button onClick={() => { setSearch(''); setCategoryFilter(''); setStageFilter(''); setConvStatusFilter(''); setPage(1); }}
+              <button onClick={() => { setSearch(''); setCategoryFilter(''); setStageFilter(''); setConvStatusFilter(''); setTagFilter(''); setPage(1); }}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-white border border-gray-700 px-2.5 py-1.5 rounded-lg transition-colors">
                 <X size={12} /> Limpiar
               </button>
@@ -315,10 +332,16 @@ export default function Contacts() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{c.name}</p>
               <p className="text-xs text-gray-500 font-mono truncate">{c.phone}</p>
-              {c.category_name && (
-                <span className="inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                  style={{ backgroundColor: c.category_color + '22', color: c.category_color }}>{c.category_name}</span>
-              )}
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {c.category_name && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                    style={{ backgroundColor: c.category_color + '22', color: c.category_color }}>{c.category_name}</span>
+                )}
+                {c.tags?.map(t => (
+                  <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                    style={{ backgroundColor: t.color + '22', color: t.color }}>{t.name}</span>
+                ))}
+              </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
               {c.conv_status && c.conv_status !== 'open' && (
@@ -375,9 +398,15 @@ export default function Contacts() {
                 <td className="px-4 py-3 text-gray-400 font-mono">{c.phone}</td>
                 <td className="px-4 py-3"><span title={c.country_name} className="text-xl">{c.country_flag || '🏳️'}</span></td>
                 <td className="px-4 py-3">
-                  {c.category_name
-                    ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: c.category_color + '33', color: c.category_color }}>{c.category_name}</span>
-                    : <span className="text-gray-600">—</span>}
+                  <div className="flex flex-wrap gap-1">
+                    {c.category_name
+                      ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: c.category_color + '33', color: c.category_color }}>{c.category_name}</span>
+                      : <span className="text-gray-600">—</span>}
+                    {c.tags?.map(t => (
+                      <span key={t.id} className="px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                        style={{ backgroundColor: t.color + '22', color: t.color }}>{t.name}</span>
+                    ))}
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded text-xs ${

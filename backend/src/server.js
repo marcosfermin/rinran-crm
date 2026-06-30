@@ -68,6 +68,9 @@ app.use('/api/templates',     auth, require('./routes/templates'));
 app.use('/api/team',          auth, require('./routes/users'));
 app.use('/api/auto-reply',    auth, require('./routes/autoReply'));
 app.use('/api/saved-filters', auth, require('./routes/savedFilters'));
+app.use('/api/settings',      auth, require('./routes/settings'));
+app.use('/api/tags',          auth, require('./routes/tags'));
+app.use('/api/contacts/:contactId/notes', auth, require('./routes/internalNotes'));
 
 // WAHA sessions proxy
 const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';

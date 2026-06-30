@@ -1,0 +1,108 @@
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const axios = require('axios');
+const { getDb } = require('../db');
+
+const DEFAULTS = {
+  company_name: 'Rinran CRM',
+  timezone: 'America/Mexico_City',
+  business_hours_start: '09:00',
+  business_hours_end: '18:00',
+  sla_hours: '4',
+  webhook_url: '',
+};
+
+function getAll(db) {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  const result = { ...DEFAULTS };
+  rows.forEach(r => { result[r.key] = r.value; });
+  return result;
+}
+
+// GET /settings
+router.get('/', (req, res) => {
+  res.json(getAll(getDb()));
+});
+
+// PUT /settings
+router.put('/', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const allowed = ['company_name', 'timezone', 'business_hours_start', 'business_hours_end', 'sla_hours', 'webhook_url'];
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(req.body[key]));
+    }
+  }
+  res.json(getAll(db));
+});
+
+// POST /settings/change-password
+router.post('/change-password', (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.status(400).json({ error: 'current_password y new_password requeridos' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'Mínimo 6 caracteres' });
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!bcrypt.compareSync(current_password, user.password_hash)) return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), req.user.id);
+  res.json({ ok: true });
+});
+
+// POST /settings/webhook — configure WAHA webhook
+router.post('/webhook', async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const settings = getAll(db);
+  const webhookUrl = req.body.webhook_url || settings.webhook_url;
+  if (!webhookUrl) return res.status(400).json({ error: 'webhook_url required' });
+
+  const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';
+  const WAHA_KEY = process.env.OPENWA_API_KEY || '';
+  try {
+    const sessRes = await axios.get(`${WAHA_URL}/api/sessions`, { headers: { 'X-Api-Key': WAHA_KEY }, timeout: 10000 });
+    const sessions = Array.isArray(sessRes.data) ? sessRes.data : [];
+    const active = sessions.find(s => s.status === 'WORKING') || sessions[0];
+    if (!active) return res.status(400).json({ error: 'No active session found' });
+
+    await axios.put(`${WAHA_URL}/api/sessions/${active.name}`, {
+      config: {
+        webhooks: [{ url: webhookUrl, events: ['message', 'message.ack'], enabled: true }],
+        noweb: { store: { enabled: true, fullSync: true } },
+      }
+    }, { headers: { 'X-Api-Key': WAHA_KEY, 'Content-Type': 'application/json' }, timeout: 10000 });
+
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('webhook_url', webhookUrl);
+    res.json({ ok: true, session: active.name, webhook_url: webhookUrl });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// Custom field definitions (admin only)
+router.get('/custom-fields', (req, res) => {
+  res.json(getDb().prepare('SELECT * FROM custom_field_definitions ORDER BY sort_order, id').all());
+});
+
+router.post('/custom-fields', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const { name, field_type = 'text', options, sort_order = 0 } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const r = db.prepare('INSERT INTO custom_field_definitions (name, field_type, options_json, sort_order) VALUES (?, ?, ?, ?)').run(name, field_type, options ? JSON.stringify(options) : null, sort_order);
+    res.status(201).json(db.prepare('SELECT * FROM custom_field_definitions WHERE id = ?').get(r.lastInsertRowid));
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Field name already exists' });
+    throw e;
+  }
+});
+
+router.delete('/custom-fields/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  getDb().prepare('DELETE FROM custom_field_definitions WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+module.exports = router;

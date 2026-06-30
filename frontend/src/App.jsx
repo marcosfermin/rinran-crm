@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Filter } from 'lucide-react';
+import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { apiFetch } from './utils/apiFetch.js';
 import Login from './pages/Login.jsx';
@@ -16,6 +16,7 @@ import Team from './pages/Team.jsx';
 import Sessions from './pages/Sessions.jsx';
 import AutoReply from './pages/AutoReply.jsx';
 import GlobalSearch from './pages/GlobalSearch.jsx';
+import SettingsPage from './pages/Settings.jsx';
 
 function playNotificationSound() {
   try {
@@ -59,11 +60,12 @@ function buildSidebarNav(role) {
   ];
   if (role === 'admin') {
     nav.push(
-      { to: '/categories', icon: Tag,    label: 'Categorías', end: false },
-      { to: '/templates',  icon: Zap,    label: 'Plantillas', end: false },
-      { to: '/auto-reply', icon: Bot,    label: 'AutoReply',  end: false },
-      { to: '/team',       icon: Users2, label: 'Equipo',     end: false },
-      { to: '/sessions',   icon: Wifi,   label: 'Sesiones',   end: false },
+      { to: '/categories', icon: Tag,      label: 'Categorías', end: false },
+      { to: '/templates',  icon: Zap,      label: 'Plantillas', end: false },
+      { to: '/auto-reply', icon: Bot,      label: 'AutoReply',  end: false },
+      { to: '/team',       icon: Users2,   label: 'Equipo',     end: false },
+      { to: '/sessions',   icon: Wifi,     label: 'Sesiones',   end: false },
+      { to: '/settings',   icon: Settings, label: 'Config',     end: false },
     );
   }
   return nav;
@@ -210,6 +212,7 @@ export default function App() {
           <Route path="/sessions" element={<Sessions />} />
           <Route path="/auto-reply" element={<AutoReply />} />
           <Route path="/search" element={<GlobalSearch />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
       <BottomNav unread={unread} />

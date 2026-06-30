@@ -113,6 +113,8 @@ router.patch('/:contact_id/read', (req, res) => {
 // PATCH /inbox/:contact_id/unread — mark last inbound message as unread
 router.patch('/:contact_id/unread', (req, res) => {
   const db = getDb();
+  const contact = db.prepare("SELECT id FROM contacts WHERE id = ?").get(req.params.contact_id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
   const last = db.prepare(
     "SELECT id FROM messages WHERE contact_id = ? AND direction = 'inbound' ORDER BY sent_at DESC LIMIT 1"
   ).get(req.params.contact_id);

@@ -257,5 +257,29 @@ setInterval(async () => {
   }
 }, 60000);
 
+// WAHA session watchdog — auto-restart when WhatsApp requests it (code 515),
+// but skip device_removed (code 401) which requires a new QR scan.
+const { resetSession } = require('./whatsapp');
+setInterval(async () => {
+  try {
+    const r = await axios.get(`${WAHA_URL}/api/sessions`, { headers: wahaHdr(), timeout: 5000 });
+    const session = Array.isArray(r.data) ? r.data[0] : null;
+    if (!session) return;
+    if (session.status === 'FAILED') {
+      // Check if WAHA knows the reason — device_removed needs QR, everything else try restart
+      const logs = await axios.get(`${WAHA_URL}/api/${session.name}/logs`, { headers: wahaHdr(), timeout: 5000 })
+        .then(l => JSON.stringify(l.data)).catch(() => '');
+      if (logs.includes('device_removed')) {
+        // Can't auto-recover — notify via SSE so UI can show a warning
+        try { sseEmit('session.status', { status: 'FAILED', reason: 'device_removed' }); } catch {}
+        return;
+      }
+      console.log('[watchdog] Session FAILED (not device_removed) — attempting restart');
+      resetSession();
+      await axios.post(`${WAHA_URL}/api/sessions/${session.name}/restart`, {}, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 }).catch(() => {});
+    }
+  } catch {}
+}, 30000);
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Rinran CRM backend running on port ${PORT}`));

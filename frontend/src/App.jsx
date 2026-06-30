@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Filter } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { apiFetch } from './utils/apiFetch.js';
 import Login from './pages/Login.jsx';
@@ -14,22 +14,21 @@ import Pipeline from './pages/Pipeline.jsx';
 import Templates from './pages/Templates.jsx';
 import Team from './pages/Team.jsx';
 import Sessions from './pages/Sessions.jsx';
+import AutoReply from './pages/AutoReply.jsx';
+import GlobalSearch from './pages/GlobalSearch.jsx';
 
-// Play a soft notification beep via Web Audio API
 function playNotificationSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     osc.type = 'sine';
     osc.frequency.setValueAtTime(880, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.15);
     gain.gain.setValueAtTime(0.12, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
   } catch {}
 }
 
@@ -42,24 +41,33 @@ function sendBrowserNotification(title, body) {
 }
 
 const BOTTOM_NAV = [
-  { to: '/inbox',    icon: Inbox,         label: 'Bandeja', end: false },
-  { to: '/contacts', icon: Users,         label: 'Contactos', end: false },
-  { to: '/pipeline', icon: GitBranch,     label: 'Pipeline', end: false },
-  { to: '/broadcast',icon: Send,          label: 'Mensajes', end: false },
-  { to: '/',         icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/inbox',    icon: Inbox,          label: 'Bandeja', end: false },
+  { to: '/contacts', icon: Users,          label: 'Contactos', end: false },
+  { to: '/pipeline', icon: GitBranch,      label: 'Pipeline', end: false },
+  { to: '/broadcast',icon: Send,           label: 'Mensajes', end: false },
+  { to: '/',         icon: LayoutDashboard,label: 'Dashboard', end: true },
 ];
 
-const SIDEBAR_NAV = [
-  { to: '/inbox',     icon: Inbox,          label: 'Bandeja',    end: false },
-  { to: '/contacts',  icon: Users,          label: 'Contactos',  end: false },
-  { to: '/pipeline',  icon: GitBranch,      label: 'Pipeline',   end: false },
-  { to: '/broadcast', icon: Send,           label: 'Mensajes',   end: false },
-  { to: '/',          icon: LayoutDashboard,label: 'Dashboard',  end: true },
-  { to: '/categories',icon: Tag,            label: 'Categorías', end: false },
-  { to: '/templates', icon: Zap,            label: 'Plantillas', end: false },
-  { to: '/team',      icon: Users2,         label: 'Equipo',     end: false },
-  { to: '/sessions',  icon: Wifi,           label: 'Sesiones',   end: false },
-];
+function buildSidebarNav(role) {
+  const nav = [
+    { to: '/inbox',       icon: Inbox,          label: 'Bandeja',    end: false },
+    { to: '/contacts',    icon: Users,           label: 'Contactos',  end: false },
+    { to: '/pipeline',    icon: GitBranch,       label: 'Pipeline',   end: false },
+    { to: '/broadcast',   icon: Send,            label: 'Mensajes',   end: false },
+    { to: '/',            icon: LayoutDashboard, label: 'Dashboard',  end: true },
+    { to: '/search',      icon: Search,          label: 'Buscar',     end: false },
+  ];
+  if (role === 'admin') {
+    nav.push(
+      { to: '/categories', icon: Tag,    label: 'Categorías', end: false },
+      { to: '/templates',  icon: Zap,    label: 'Plantillas', end: false },
+      { to: '/auto-reply', icon: Bot,    label: 'AutoReply',  end: false },
+      { to: '/team',       icon: Users2, label: 'Equipo',     end: false },
+      { to: '/sessions',   icon: Wifi,   label: 'Sesiones',   end: false },
+    );
+  }
+  return nav;
+}
 
 function useUnreadCount(active) {
   const [count, setCount] = useState(0);
@@ -68,38 +76,28 @@ function useUnreadCount(active) {
 
   useEffect(() => {
     if (!active) return;
-
-    // Request browser notification permission on first load
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {});
     }
 
     const check = () =>
-      apiFetch('/api/inbox')
-        .then(r => r?.json())
-        .then(data => {
-          if (!data) return;
-          const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
-
-          if (initialized.current && newCount > prevCount.current) {
-            playNotificationSound();
-            if (document.hidden) {
-              sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} mensaje${newCount > 1 ? 's' : ''} sin leer`);
-            }
-          }
-
-          prevCount.current = newCount;
-          initialized.current = true;
-          setCount(newCount);
-        })
-        .catch(() => {});
+      apiFetch('/api/inbox').then(r => r?.json()).then(data => {
+        if (!data) return;
+        const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
+        if (initialized.current && newCount > prevCount.current) {
+          playNotificationSound();
+          if (document.hidden) sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} mensaje${newCount > 1 ? 's' : ''} sin leer`);
+        }
+        prevCount.current = newCount;
+        initialized.current = true;
+        setCount(newCount);
+      }).catch(() => {});
 
     check();
     const t = setInterval(check, 8000);
     return () => clearInterval(t);
   }, [active]);
 
-  // Update document title with unread badge
   useEffect(() => {
     document.title = count > 0 ? `(${count}) Rinran CRM` : 'Rinran CRM';
   }, [count]);
@@ -108,6 +106,7 @@ function useUnreadCount(active) {
 }
 
 function Sidebar({ unread, onLogout, user }) {
+  const nav = buildSidebarNav(user?.role);
   return (
     <aside className="hidden md:flex w-56 bg-gray-900 border-r border-gray-800 flex-col shrink-0">
       <div className="p-4 border-b border-gray-800">
@@ -117,11 +116,8 @@ function Sidebar({ unread, onLogout, user }) {
         </div>
       </div>
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {SIDEBAR_NAV.map(({ to, icon: Icon, label, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
+        {nav.map(({ to, icon: Icon, label, end }) => (
+          <NavLink key={to} to={to} end={end}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative ${
                 isActive ? 'bg-green-500/10 text-green-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
@@ -140,14 +136,14 @@ function Sidebar({ unread, onLogout, user }) {
       </nav>
       <div className="p-2 border-t border-gray-800 space-y-0.5">
         {user && (
-          <div className="px-3 py-1.5 text-xs text-gray-500 truncate">{user.email}</div>
+          <div className="px-3 py-1.5 text-xs text-gray-500 truncate">
+            {user.email}
+            {user.role === 'agent' && <span className="ml-1 text-blue-400">(agente)</span>}
+          </div>
         )}
-        <button
-          onClick={onLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
-        >
-          <LogOut size={17} />
-          Cerrar sesión
+        <button onClick={onLogout}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">
+          <LogOut size={17} /> Cerrar sesión
         </button>
       </div>
     </aside>
@@ -158,10 +154,7 @@ function BottomNav({ unread }) {
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 flex z-40">
       {BOTTOM_NAV.map(({ to, icon: Icon, label, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
+        <NavLink key={to} to={to} end={end}
           className={({ isActive }) =>
             `flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition-colors relative ${
               isActive ? 'text-green-400' : 'text-gray-500'
@@ -215,6 +208,8 @@ export default function App() {
           <Route path="/templates" element={<Templates />} />
           <Route path="/team" element={<Team />} />
           <Route path="/sessions" element={<Sessions />} />
+          <Route path="/auto-reply" element={<AutoReply />} />
+          <Route path="/search" element={<GlobalSearch />} />
         </Routes>
       </main>
       <BottomNav unread={unread} />

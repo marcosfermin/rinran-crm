@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Trash2, Eye, EyeOff, Shield, User } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -7,7 +7,7 @@ export default function Team() {
   const { user } = useAuth();
   const [members, setMembers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'agent' });
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
 
@@ -24,7 +24,7 @@ export default function Team() {
     });
     const d = await r?.json();
     if (!r?.ok) { setError(d?.error || 'Error'); return; }
-    setShowAdd(false); setForm({ name: '', email: '', password: '' }); load();
+    setShowAdd(false); setForm({ name: '', email: '', password: '', role: 'agent' }); load();
   }
 
   async function del(id) {
@@ -75,6 +75,14 @@ export default function Team() {
                 </button>
               </div>
             </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Rol</label>
+              <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                <option value="agent">Agente (solo ve sus contactos)</option>
+                <option value="admin">Admin (ve todos los contactos)</option>
+              </select>
+            </div>
             <div className="flex gap-2">
               <button type="button" onClick={() => setShowAdd(false)}
                 className="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800">
@@ -101,6 +109,9 @@ export default function Team() {
                 {m.id === user?.id && (
                   <span className="text-[10px] px-1.5 py-0.5 bg-green-900/40 text-green-400 rounded-full">Tú</span>
                 )}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${m.role === 'admin' ? 'bg-purple-900/40 text-purple-400' : 'bg-blue-900/40 text-blue-400'}`}>
+                  {m.role === 'admin' ? <Shield size={9} /> : <User size={9} />} {m.role === 'admin' ? 'Admin' : 'Agente'}
+                </span>
               </div>
               <p className="text-xs text-gray-500 truncate">{m.email}</p>
             </div>

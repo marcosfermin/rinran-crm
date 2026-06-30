@@ -8,7 +8,6 @@ const { sendText, sendFile, downloadMedia, toWaId } = require('../whatsapp');
 const uploadsDir = path.join(__dirname, '../../../data/uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-// Internal URL WAHA uses to fetch uploaded files (same Docker network)
 const BACKEND_INTERNAL = process.env.BACKEND_INTERNAL_URL || 'http://backend:4000';
 
 function saveUpload(base64data, originalFilename) {
@@ -21,20 +20,28 @@ function saveUpload(base64data, originalFilename) {
   return filename;
 }
 
-// POST /messages/send — single text message
+// POST /messages/send — single text message with optional quote
 router.post('/send', async (req, res) => {
   const db = getDb();
-  const { contact_id, message } = req.body;
+  const { contact_id, message, reply_to_id } = req.body;
   if (!contact_id || !message) return res.status(400).json({ error: 'contact_id and message required' });
 
   const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
+  // If replying, fetch the original WA message ID
+  let quotedWaId = null;
+  let replyContent = null;
+  if (reply_to_id) {
+    const orig = db.prepare('SELECT * FROM messages WHERE id = ?').get(reply_to_id);
+    if (orig) { quotedWaId = orig.wa_message_id; replyContent = orig.content; }
+  }
+
   let wa_message_id = null;
   let status = 'sent';
 
   try {
-    const result = await sendText(contact.phone, message, contact.wa_chat_id);
+    const result = await sendText(contact.phone, message, contact.wa_chat_id, quotedWaId || undefined);
     wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
   } catch (e) {
     status = 'failed';
@@ -42,9 +49,12 @@ router.post('/send', async (req, res) => {
   }
 
   const row = db.prepare(`
-    INSERT INTO messages (contact_id, direction, content, wa_message_id, status)
-    VALUES (?, 'outbound', ?, ?, ?)
-  `).run(contact_id, message, wa_message_id, status);
+    INSERT INTO messages (contact_id, direction, content, wa_message_id, status, reply_to_id, reply_to_content, reply_to_wa_id)
+    VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?)
+  `).run(contact_id, message, wa_message_id, status, reply_to_id || null, replyContent || null, quotedWaId || null);
+
+  // Auto-open conv_status when we send a message
+  db.prepare("UPDATE contacts SET conv_status = 'open', updated_at = datetime('now') WHERE id = ? AND conv_status = 'closed'").run(contact_id);
 
   res.json({ id: row.lastInsertRowid, status, wa_message_id });
 });
@@ -91,20 +101,19 @@ router.post('/send-file', async (req, res) => {
   res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
 });
 
-// POST /messages/broadcast — bulk send (text or file)
+// POST /messages/broadcast — bulk send (immediate or scheduled)
 router.post('/broadcast', async (req, res) => {
   const db = getDb();
-  const { name, message, category_id, file } = req.body;
+  const { name, message, category_id, pipeline_stage, file, scheduled_at } = req.body;
   if (!message && !file) return res.status(400).json({ error: 'message or file required' });
 
-  const contacts = category_id
-    ? db.prepare("SELECT * FROM contacts WHERE category_id = ? AND status = 'active'").all(category_id)
-    : db.prepare("SELECT * FROM contacts WHERE status = 'active'").all();
+  let contactQuery = "SELECT * FROM contacts WHERE status = 'active'";
+  const contactParams = [];
+  if (category_id) { contactQuery += ' AND category_id = ?'; contactParams.push(category_id); }
+  if (pipeline_stage) { contactQuery += ' AND pipeline_stage = ?'; contactParams.push(pipeline_stage); }
+  const contacts = db.prepare(contactQuery).all(...contactParams);
 
-  // Save broadcast file once (reused for all contacts)
-  let broadcastFileUrl = null;
-  let broadcastFilename = null;
-  let broadcastMimetype = null;
+  let broadcastFileUrl = null, broadcastFilename = null, broadcastMimetype = null;
   if (file) {
     try {
       const saved = saveUpload(file.data, file.filename);
@@ -116,13 +125,40 @@ router.post('/broadcast', async (req, res) => {
     }
   }
 
+  const broadcastStatus = scheduled_at ? 'scheduled' : 'sending';
   const broadcastRow = db.prepare(`
-    INSERT INTO broadcasts (name, message, category_id, total_recipients, status, media_url, media_type, media_filename)
-    VALUES (?, ?, ?, ?, 'sending', ?, ?, ?)
-  `).run(name || 'Broadcast', message || '', category_id || null, contacts.length, broadcastFileUrl, broadcastMimetype, broadcastFilename);
+    INSERT INTO broadcasts (name, message, category_id, pipeline_stage, total_recipients, status, media_url, media_type, media_filename, scheduled_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name || 'Broadcast', message || '', category_id || null, pipeline_stage || null,
+         contacts.length, broadcastStatus, broadcastFileUrl, broadcastMimetype, broadcastFilename, scheduled_at || null);
   const broadcastId = broadcastRow.lastInsertRowid;
 
-  res.json({ broadcast_id: broadcastId, total: contacts.length });
+  // Pre-create recipient rows
+  for (const contact of contacts) {
+    try {
+      db.prepare('INSERT OR IGNORE INTO broadcast_recipients (broadcast_id, contact_id) VALUES (?, ?)').run(broadcastId, contact.id);
+    } catch {}
+  }
+
+  res.json({ broadcast_id: broadcastId, total: contacts.length, scheduled: !!scheduled_at });
+
+  if (scheduled_at) return; // Will be sent by scheduler
+
+  await fireBroadcast(db, broadcastId);
+});
+
+// Exported for scheduler
+async function fireBroadcast(db, broadcastId) {
+  const broadcast = db.prepare('SELECT * FROM broadcasts WHERE id = ?').get(broadcastId);
+  if (!broadcast) return;
+
+  let contactQuery = "SELECT * FROM contacts WHERE status = 'active'";
+  const contactParams = [];
+  if (broadcast.category_id) { contactQuery += ' AND category_id = ?'; contactParams.push(broadcast.category_id); }
+  if (broadcast.pipeline_stage) { contactQuery += ' AND pipeline_stage = ?'; contactParams.push(broadcast.pipeline_stage); }
+  const contacts = db.prepare(contactQuery).all(...contactParams);
+
+  db.prepare("UPDATE broadcasts SET status = 'sending' WHERE id = ?").run(broadcastId);
 
   let sent = 0, failed = 0;
   for (const contact of contacts) {
@@ -130,38 +166,39 @@ router.post('/broadcast', async (req, res) => {
       const chatId = contact.wa_chat_id || toWaId(contact.phone);
       let wa_message_id = null;
 
-      if (file && broadcastFileUrl) {
-        const waUrl = `${BACKEND_INTERNAL}${broadcastFileUrl}`;
+      if (broadcast.media_url) {
+        const waUrl = `${BACKEND_INTERNAL}${broadcast.media_url}`;
         const result = await sendFile(chatId, {
-          url: waUrl,
-          filename: broadcastFilename,
-          mimetype: broadcastMimetype,
-          caption: file.caption || message || undefined,
+          url: waUrl, filename: broadcast.media_filename, mimetype: broadcast.media_type,
+          caption: broadcast.message || undefined,
         });
         wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
-        const content = file.caption || message || broadcastFilename;
         db.prepare(`
           INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename)
           VALUES (?, 'outbound', ?, ?, 'sent', ?, ?, ?)
-        `).run(contact.id, content, wa_message_id, broadcastFileUrl, broadcastMimetype, broadcastFilename);
+        `).run(contact.id, broadcast.message || broadcast.media_filename, wa_message_id, broadcast.media_url, broadcast.media_type, broadcast.media_filename);
       } else {
-        const result = await sendText(contact.phone, message, contact.wa_chat_id);
+        const result = await sendText(contact.phone, broadcast.message, contact.wa_chat_id);
         wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
-        db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, 'outbound', ?, ?, 'sent')`).run(contact.id, message, wa_message_id);
+        db.prepare('INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, \'outbound\', ?, ?, \'sent\')').run(contact.id, broadcast.message, wa_message_id);
       }
+
+      db.prepare('UPDATE broadcast_recipients SET status = ?, wa_message_id = ?, sent_at = datetime(\'now\') WHERE broadcast_id = ? AND contact_id = ?')
+        .run('sent', wa_message_id, broadcastId, contact.id);
       sent++;
     } catch {
-      const content = file ? (file.caption || file.filename) : message;
-      db.prepare(`INSERT INTO messages (contact_id, direction, content, status) VALUES (?, 'outbound', ?, 'failed')`).run(contact.id, content);
+      const content = broadcast.media_url ? (broadcast.message || broadcast.media_filename) : broadcast.message;
+      db.prepare('INSERT INTO messages (contact_id, direction, content, status) VALUES (?, \'outbound\', ?, \'failed\')').run(contact.id, content);
+      db.prepare('UPDATE broadcast_recipients SET status = ? WHERE broadcast_id = ? AND contact_id = ?').run('failed', broadcastId, contact.id);
       failed++;
     }
     db.prepare('UPDATE broadcasts SET sent_count = ?, failed_count = ? WHERE id = ?').run(sent, failed, broadcastId);
   }
 
   db.prepare("UPDATE broadcasts SET status = 'completed', sent_at = datetime('now') WHERE id = ?").run(broadcastId);
-});
+}
 
-// POST /messages/:id/download-media — download and save media for a received message
+// POST /messages/:id/download-media
 router.post('/:id/download-media', async (req, res) => {
   const db = getDb();
   const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get(req.params.id);
@@ -194,4 +231,35 @@ router.get('/broadcasts', (req, res) => {
   res.json(broadcasts);
 });
 
-module.exports = router;
+// GET /messages/broadcasts/:id/recipients
+router.get('/broadcasts/:id/recipients', (req, res) => {
+  const db = getDb();
+  const recipients = db.prepare(`
+    SELECT br.*, c.name, c.phone FROM broadcast_recipients br
+    JOIN contacts c ON br.contact_id = c.id
+    WHERE br.broadcast_id = ?
+    ORDER BY br.id
+  `).all(req.params.id);
+  res.json(recipients);
+});
+
+// GET /messages/search — global search across messages
+router.get('/search', (req, res) => {
+  const db = getDb();
+  const { q, limit = 30 } = req.query;
+  if (!q?.trim()) return res.json([]);
+
+  const results = db.prepare(`
+    SELECT m.id, m.contact_id, m.direction, m.content, m.sent_at, m.media_type,
+           c.name as contact_name, c.phone as contact_phone
+    FROM messages m
+    JOIN contacts c ON m.contact_id = c.id
+    WHERE m.content LIKE ?
+    ORDER BY m.sent_at DESC
+    LIMIT ?
+  `).all(`%${q}%`, parseInt(limit));
+
+  res.json(results);
+});
+
+module.exports = { router, fireBroadcast };

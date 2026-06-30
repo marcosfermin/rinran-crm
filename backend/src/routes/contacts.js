@@ -4,22 +4,37 @@ const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
 const { getChatLabels, setChatLabels } = require('../whatsapp');
 
+function logActivity(db, contactId, userId, action, detail) {
+  try {
+    db.prepare('INSERT INTO activity_log (contact_id, user_id, action, detail) VALUES (?, ?, ?, ?)').run(contactId, userId || null, action, detail || null);
+  } catch {}
+}
+
 // GET /contacts
 router.get('/', (req, res) => {
   const db = getDb();
-  const { category_id, status, search, pipeline_stage, assigned_to, page = 1, limit = 50 } = req.query;
+  const { category_id, status, search, pipeline_stage, assigned_to, conv_status, page = 1, limit = 50 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
   let where = ['1=1'];
   const params = [];
 
+  // Agents only see their assigned contacts
+  if (req.user.role === 'agent') {
+    where.push('c.assigned_to = ?');
+    params.push(req.user.id);
+  } else if (assigned_to) {
+    where.push('c.assigned_to = ?');
+    params.push(assigned_to);
+  }
+
   if (category_id) { where.push('c.category_id = ?'); params.push(category_id); }
   if (status) { where.push('c.status = ?'); params.push(status); }
   if (pipeline_stage) { where.push('c.pipeline_stage = ?'); params.push(pipeline_stage); }
-  if (assigned_to) { where.push('c.assigned_to = ?'); params.push(assigned_to); }
+  if (conv_status) { where.push('c.conv_status = ?'); params.push(conv_status); }
   if (search) {
-    where.push('(c.name LIKE ? OR c.phone LIKE ?)');
-    params.push(`%${search}%`, `%${search}%`);
+    where.push('(c.name LIKE ? OR c.phone LIKE ? OR c.notes LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   const whereClause = where.join(' AND ');
@@ -31,7 +46,7 @@ router.get('/', (req, res) => {
     LEFT JOIN categories cat ON c.category_id = cat.id
     LEFT JOIN users u ON c.assigned_to = u.id
     WHERE ${whereClause}
-    ORDER BY c.created_at DESC
+    ORDER BY c.updated_at DESC
     LIMIT ? OFFSET ?
   `).all(...params, parseInt(limit), offset);
 
@@ -44,28 +59,93 @@ router.get('/export', (req, res) => {
   const { category_id, status, search } = req.query;
   let where = ['1=1'];
   const params = [];
+  if (req.user.role === 'agent') { where.push('c.assigned_to = ?'); params.push(req.user.id); }
   if (category_id) { where.push('c.category_id = ?'); params.push(category_id); }
   if (status) { where.push('c.status = ?'); params.push(status); }
   if (search) { where.push('(c.name LIKE ? OR c.phone LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
 
   const contacts = db.prepare(`
     SELECT c.name, c.phone, c.country_name, cat.name as category, c.pipeline_stage,
-           c.notes, c.status, c.source, c.created_at
+           c.conv_status, c.notes, c.status, c.source, c.created_at
     FROM contacts c LEFT JOIN categories cat ON c.category_id = cat.id
     WHERE ${where.join(' AND ')}
     ORDER BY c.name
   `).all(...params);
 
-  const header = 'nombre,telefono,pais,categoria,pipeline,notas,estado,fuente,creado_en';
+  const header = 'nombre,telefono,pais,categoria,pipeline,estado_conv,notas,estado,fuente,creado_en';
   const esc = v => `"${(v || '').toString().replace(/"/g, '""')}"`;
   const rows = contacts.map(c =>
-    [c.name, c.phone, c.country_name, c.category, c.pipeline_stage, c.notes, c.status, c.source, c.created_at]
+    [c.name, c.phone, c.country_name, c.category, c.pipeline_stage, c.conv_status, c.notes, c.status, c.source, c.created_at]
       .map(esc).join(',')
   );
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="contactos.csv"');
   res.send('﻿' + [header, ...rows].join('\r\n'));
+});
+
+// GET /contacts/duplicates — find potential duplicate contacts
+router.get('/duplicates', (req, res) => {
+  const db = getDb();
+  // Find contacts with the same name (case-insensitive, trimmed)
+  const dupes = db.prepare(`
+    SELECT c1.id as id1, c1.name as name1, c1.phone as phone1, c1.source as source1,
+           c2.id as id2, c2.name as name2, c2.phone as phone2, c2.source as source2
+    FROM contacts c1
+    JOIN contacts c2 ON c1.id < c2.id
+      AND (LOWER(TRIM(c1.name)) = LOWER(TRIM(c2.name))
+        OR REPLACE(REPLACE(REPLACE(c1.phone, '+', ''), '-', ''), ' ', '') = REPLACE(REPLACE(REPLACE(c2.phone, '+', ''), '-', ''), ' ', ''))
+    LIMIT 50
+  `).all();
+  res.json(dupes);
+});
+
+// POST /contacts/merge — merge two contacts (keep keepId, delete mergeId)
+router.post('/merge', (req, res) => {
+  const db = getDb();
+  const { keep_id, merge_id } = req.body;
+  if (!keep_id || !merge_id || keep_id === merge_id) {
+    return res.status(400).json({ error: 'keep_id and merge_id required and must differ' });
+  }
+  const keep = db.prepare('SELECT * FROM contacts WHERE id = ?').get(keep_id);
+  const merge = db.prepare('SELECT * FROM contacts WHERE id = ?').get(merge_id);
+  if (!keep || !merge) return res.status(404).json({ error: 'Contact not found' });
+
+  db.prepare('UPDATE messages SET contact_id = ? WHERE contact_id = ?').run(keep_id, merge_id);
+  db.prepare('UPDATE activity_log SET contact_id = ? WHERE contact_id = ?').run(keep_id, merge_id);
+  if (!keep.wa_chat_id && merge.wa_chat_id) {
+    db.prepare('UPDATE contacts SET wa_chat_id = ?, wa_session = ? WHERE id = ?').run(merge.wa_chat_id, merge.wa_session, keep_id);
+  }
+  db.prepare('DELETE FROM contacts WHERE id = ?').run(merge_id);
+  logActivity(db, keep_id, req.user.id, 'merged', `Fusionado con ${merge.name} (${merge.phone})`);
+  res.json({ ok: true, kept: keep_id, deleted: merge_id });
+});
+
+// POST /contacts/bulk — bulk actions on multiple contacts
+router.post('/bulk', (req, res) => {
+  const db = getDb();
+  const { ids, action, value } = req.body;
+  if (!ids?.length || !action) return res.status(400).json({ error: 'ids[] and action required' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const ts = `datetime('now')`;
+
+  if (action === 'assign_category') {
+    db.prepare(`UPDATE contacts SET category_id = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value || null, ...ids);
+  } else if (action === 'assign_agent') {
+    db.prepare(`UPDATE contacts SET assigned_to = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value || null, ...ids);
+  } else if (action === 'set_pipeline') {
+    db.prepare(`UPDATE contacts SET pipeline_stage = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
+  } else if (action === 'set_conv_status') {
+    db.prepare(`UPDATE contacts SET conv_status = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
+  } else if (action === 'delete') {
+    db.prepare(`DELETE FROM contacts WHERE id IN (${placeholders})`).run(...ids);
+  } else {
+    return res.status(400).json({ error: 'Unknown action' });
+  }
+
+  ids.forEach(cid => logActivity(db, cid, req.user.id, `bulk_${action}`, value));
+  res.json({ ok: true, affected: ids.length });
 });
 
 // GET /contacts/:id
@@ -85,7 +165,13 @@ router.get('/:id', (req, res) => {
     'SELECT * FROM messages WHERE contact_id = ? ORDER BY sent_at DESC LIMIT 200'
   ).all(req.params.id);
 
-  res.json({ ...contact, messages });
+  const activity = db.prepare(`
+    SELECT a.*, u.name as user_name FROM activity_log a
+    LEFT JOIN users u ON a.user_id = u.id
+    WHERE a.contact_id = ? ORDER BY a.created_at DESC LIMIT 50
+  `).all(req.params.id);
+
+  res.json({ ...contact, messages, activity });
 });
 
 // POST /contacts
@@ -100,7 +186,9 @@ router.post('/', (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(name, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name,
            category_id || null, notes || null, source || 'manual');
-    res.status(201).json(db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid));
+    const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(result.lastInsertRowid);
+    logActivity(db, contact.id, req.user.id, 'created', `Manual — ${parsed.phone}`);
+    res.status(201).json(contact);
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Phone already exists' });
     throw e;
@@ -116,7 +204,7 @@ router.post('/import', (req, res) => {
   const lines = csv.replace(/\r/g, '').split('\n').filter(l => l.trim());
   if (lines.length < 2) return res.status(400).json({ error: 'CSV needs header row + at least one data row' });
 
-  const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["\s]/g, ''));
+  const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["\s﻿]/g, ''));
   const nameIdx = header.findIndex(h => ['nombre','name'].includes(h));
   const phoneIdx = header.findIndex(h => ['telefono','phone','tel'].includes(h));
   if (nameIdx < 0 || phoneIdx < 0) {
@@ -124,6 +212,7 @@ router.post('/import', (req, res) => {
   }
   const notesIdx = header.findIndex(h => ['notas','notes'].includes(h));
   const catIdx = header.findIndex(h => ['categoria','category'].includes(h));
+  const stageIdx = header.findIndex(h => ['pipeline'].includes(h));
 
   let imported = 0, skipped = 0, errors = [];
 
@@ -139,13 +228,15 @@ router.post('/import', (req, res) => {
       if (cat) category_id = cat.id;
     }
 
+    const pipeline_stage = stageIdx >= 0 && cols[stageIdx] ? cols[stageIdx].trim() : 'nuevo';
+
     try {
       const parsed = parsePhone(phone);
-      db.prepare(`
-        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, category_id, notes, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'csv')
+      const r = db.prepare(`
+        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, category_id, notes, source, pipeline_stage)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'csv', ?)
       `).run(name, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name,
-             category_id, notesIdx >= 0 ? (cols[notesIdx] || null) : null);
+             category_id, notesIdx >= 0 ? (cols[notesIdx] || null) : null, pipeline_stage);
       imported++;
     } catch (e) {
       if (e.message.includes('UNIQUE')) skipped++;
@@ -177,8 +268,11 @@ function parseCsvLine(line) {
 // PATCH /contacts/:id
 router.patch('/:id', (req, res) => {
   const db = getDb();
-  const { name, category_id, notes, status, pipeline_stage, assigned_to } = req.body;
+  const { name, category_id, notes, status, pipeline_stage, assigned_to, conv_status } = req.body;
   const fields = [], params = [];
+
+  const old = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
+  if (!old) return res.status(404).json({ error: 'Not found' });
 
   if (name !== undefined) { fields.push('name = ?'); params.push(name); }
   if (category_id !== undefined) { fields.push('category_id = ?'); params.push(category_id || null); }
@@ -186,6 +280,7 @@ router.patch('/:id', (req, res) => {
   if (status !== undefined) { fields.push('status = ?'); params.push(status); }
   if (pipeline_stage !== undefined) { fields.push('pipeline_stage = ?'); params.push(pipeline_stage); }
   if (assigned_to !== undefined) { fields.push('assigned_to = ?'); params.push(assigned_to || null); }
+  if (conv_status !== undefined) { fields.push('conv_status = ?'); params.push(conv_status); }
 
   if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
 
@@ -201,6 +296,22 @@ router.patch('/:id', (req, res) => {
     WHERE c.id = ?
   `).get(req.params.id);
   res.json(updated);
+
+  // Activity log
+  if (pipeline_stage !== undefined && pipeline_stage !== old.pipeline_stage) {
+    logActivity(db, old.id, req.user.id, 'stage_changed', `${old.pipeline_stage} → ${pipeline_stage}`);
+  }
+  if (assigned_to !== undefined && assigned_to !== old.assigned_to) {
+    const agent = assigned_to ? db.prepare('SELECT name FROM users WHERE id = ?').get(assigned_to) : null;
+    logActivity(db, old.id, req.user.id, 'assigned', agent ? `Asignado a ${agent.name}` : 'Sin asignar');
+  }
+  if (category_id !== undefined && category_id !== old.category_id) {
+    const cat = category_id ? db.prepare('SELECT name FROM categories WHERE id = ?').get(category_id) : null;
+    logActivity(db, old.id, req.user.id, 'category_changed', cat ? `Categoría: ${cat.name}` : 'Sin categoría');
+  }
+  if (conv_status !== undefined && conv_status !== old.conv_status) {
+    logActivity(db, old.id, req.user.id, 'conv_status_changed', conv_status);
+  }
 
   // Push category change to WhatsApp labels (fire-and-forget)
   if ('category_id' in req.body && updated.wa_chat_id) {

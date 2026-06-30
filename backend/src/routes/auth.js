@@ -20,13 +20,14 @@ router.post('/login', (req, res) => {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
 
+  const role = user.role || 'admin';
   const token = jwt.sign(
-    { id: user.id, email: user.email, name: user.name },
+    { id: user.id, email: user.email, name: user.name, role },
     secret(),
     { expiresIn: '30d' }
   );
 
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  res.json({ token, user: { id: user.id, email: user.email, name: user.name, role } });
 });
 
 // GET /api/auth/me  — requires auth

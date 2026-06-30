@@ -35,14 +35,12 @@ function fromWaId(waId) {
 }
 
 // Send a text message via WAHA REST format
-async function sendText(phone, text, waChatId) {
+async function sendText(phone, text, waChatId, quotedMessageId) {
   const session = await getSession();
   const chatId = waChatId || toWaId(phone);
-  const res = await axios.post(`${base()}/api/sendText`, {
-    chatId,
-    text,
-    session: session?.name || 'default',
-  }, { headers: headers() });
+  const body = { chatId, text, session: session?.name || 'default' };
+  if (quotedMessageId) body.quotedMessageId = quotedMessageId;
+  const res = await axios.post(`${base()}/api/sendText`, body, { headers: headers() });
   return res.data;
 }
 

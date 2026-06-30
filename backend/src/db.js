@@ -80,10 +80,49 @@ function initSchema() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS auto_reply_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      trigger_value TEXT,
+      response TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action TEXT NOT NULL,
+      detail TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS saved_filters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      filters_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS broadcast_recipients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      broadcast_id INTEGER NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      status TEXT DEFAULT 'pending',
+      wa_message_id TEXT,
+      sent_at TEXT,
+      UNIQUE(broadcast_id, contact_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
     CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_message_id);
     CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category_id);
     CREATE INDEX IF NOT EXISTS idx_messages_contact ON messages(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_log_contact ON activity_log(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_waid ON broadcast_recipients(wa_message_id);
   `);
 
   // Migrations for existing DBs
@@ -99,6 +138,13 @@ function initSchema() {
   try { db.exec("ALTER TABLE contacts ADD COLUMN pipeline_stage TEXT DEFAULT 'nuevo'"); } catch {}
   try { db.exec('ALTER TABLE contacts ADD COLUMN assigned_to INTEGER'); } catch {}
   try { db.exec('ALTER TABLE contacts ADD COLUMN wa_session TEXT'); } catch {}
+  try { db.exec("ALTER TABLE contacts ADD COLUMN conv_status TEXT DEFAULT 'open'"); } catch {}
+  try { db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'admin'"); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN reply_to_id INTEGER'); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN reply_to_content TEXT'); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN reply_to_wa_id TEXT'); } catch {}
+  try { db.exec('ALTER TABLE broadcasts ADD COLUMN scheduled_at TEXT'); } catch {}
+  try { db.exec("ALTER TABLE broadcasts ADD COLUMN pipeline_stage TEXT"); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

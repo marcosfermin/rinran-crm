@@ -105,4 +105,38 @@ router.delete('/custom-fields/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Assignment rules (admin only)
+router.get('/assignment-rules', (req, res) => {
+  const rules = getDb().prepare(`
+    SELECT ar.*, cat.name as category_name, u.name as agent_name
+    FROM assignment_rules ar
+    LEFT JOIN categories cat ON ar.category_id = cat.id
+    JOIN users u ON ar.agent_id = u.id
+    ORDER BY ar.sort_order, ar.id
+  `).all();
+  res.json(rules);
+});
+
+router.post('/assignment-rules', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const { name, category_id, agent_id, sort_order = 0 } = req.body;
+  if (!agent_id) return res.status(400).json({ error: 'agent_id required' });
+  const r = db.prepare('INSERT INTO assignment_rules (name, category_id, agent_id, sort_order) VALUES (?, ?, ?, ?)').run(name || '', category_id || null, agent_id, sort_order);
+  res.status(201).json(db.prepare(`SELECT ar.*, cat.name as category_name, u.name as agent_name FROM assignment_rules ar LEFT JOIN categories cat ON ar.category_id = cat.id JOIN users u ON ar.agent_id = u.id WHERE ar.id = ?`).get(r.lastInsertRowid));
+});
+
+router.patch('/assignment-rules/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const { is_active } = req.body;
+  if (is_active !== undefined) getDb().prepare('UPDATE assignment_rules SET is_active = ? WHERE id = ?').run(is_active ? 1 : 0, req.params.id);
+  res.json({ ok: true });
+});
+
+router.delete('/assignment-rules/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  getDb().prepare('DELETE FROM assignment_rules WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;

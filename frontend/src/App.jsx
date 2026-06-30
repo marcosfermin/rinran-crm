@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Trash2, Activity, Sun, Moon, Pencil, X } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { apiFetch } from './utils/apiFetch.js';
 import Login from './pages/Login.jsx';
@@ -17,6 +17,9 @@ import Sessions from './pages/Sessions.jsx';
 import AutoReply from './pages/AutoReply.jsx';
 import GlobalSearch from './pages/GlobalSearch.jsx';
 import SettingsPage from './pages/Settings.jsx';
+import Reminders from './pages/Reminders.jsx';
+import Trash from './pages/Trash.jsx';
+import WebhookLog from './pages/WebhookLog.jsx';
 
 function playNotificationSound() {
   try {
@@ -41,6 +44,173 @@ function sendBrowserNotification(title, body) {
   }
 }
 
+// --- Theme ---
+function useTheme() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+  return [theme, () => setTheme(t => t === 'dark' ? 'light' : 'dark')];
+}
+
+// --- SSE + unread count ---
+function useRealtimeUnread(token, onNewMessage, onReminder) {
+  const [count, setCount] = useState(0);
+  const prevCount = useRef(0);
+  const initialized = useRef(false);
+  const esRef = useRef(null);
+
+  // Initial fetch + fallback polling (every 30s instead of 8s)
+  useEffect(() => {
+    if (!token) return;
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const fetchCount = () =>
+      apiFetch('/api/inbox').then(r => r?.json()).then(data => {
+        if (!data) return;
+        const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
+        if (initialized.current && newCount > prevCount.current) {
+          playNotificationSound();
+          if (document.hidden) sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} mensaje${newCount > 1 ? 's' : ''} sin leer`);
+          onNewMessage?.();
+        }
+        prevCount.current = newCount;
+        initialized.current = true;
+        setCount(newCount);
+      }).catch(() => {});
+
+    fetchCount();
+    const t = setInterval(fetchCount, 30000);
+    return () => clearInterval(t);
+  }, [token]);
+
+  // SSE connection
+  useEffect(() => {
+    if (!token) return;
+
+    const connect = () => {
+      const es = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
+      esRef.current = es;
+
+      es.addEventListener('message', () => {
+        // New inbound message → refresh count immediately
+        apiFetch('/api/inbox').then(r => r?.json()).then(data => {
+          if (!data) return;
+          const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
+          if (newCount > prevCount.current) {
+            playNotificationSound();
+            if (document.hidden) sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} sin leer`);
+            onNewMessage?.();
+          }
+          prevCount.current = newCount;
+          setCount(newCount);
+        }).catch(() => {});
+      });
+
+      es.addEventListener('reminder', e => {
+        try {
+          const data = JSON.parse(e.data);
+          onReminder?.(data);
+          sendBrowserNotification('Recordatorio', `${data.title} — ${data.contact_name}`);
+          playNotificationSound();
+        } catch {}
+      });
+
+      es.onerror = () => {
+        es.close();
+        setTimeout(connect, 5000);
+      };
+    };
+
+    connect();
+    return () => { esRef.current?.close(); };
+  }, [token]);
+
+  useEffect(() => {
+    document.title = count > 0 ? `(${count}) Rinran CRM` : 'Rinran CRM';
+  }, [count]);
+
+  return count;
+}
+
+// --- Quick Compose Modal ---
+function QuickCompose({ onClose }) {
+  const [form, setForm] = useState({ phone: '', message: '' });
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  async function send(e) {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    const r = await apiFetch('/api/messages/quick-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: form.phone, message: form.message }),
+    });
+    setLoading(false);
+    if (r?.ok) { setSuccess(true); setTimeout(onClose, 1200); }
+    else { const d = await r?.json(); setError(d?.error || 'Error al enviar'); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-end md:items-center justify-center z-50 px-4 pb-20 md:pb-0" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-5 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Pencil size={14} /> Mensaje rápido</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={16} /></button>
+        </div>
+        {success ? (
+          <div className="text-center py-4 text-green-400 font-medium">Enviado ✓</div>
+        ) : (
+          <form onSubmit={send} className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Teléfono</label>
+              <input required value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="+52 55 1234 5678"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Mensaje</label>
+              <textarea required value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
+                rows={3} placeholder="Escribe tu mensaje..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500 resize-none" />
+            </div>
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2 rounded-xl border border-gray-700 text-sm text-gray-300 hover:bg-gray-800">Cancelar</button>
+              <button type="submit" disabled={loading}
+                className="flex-1 py-2 rounded-xl bg-green-500 hover:bg-green-400 disabled:opacity-50 text-white text-sm font-medium">
+                {loading ? 'Enviando...' : 'Enviar'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Reminder toast ---
+function ReminderToast({ reminder, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 8000); return () => clearTimeout(t); }, []);
+  return (
+    <div className="fixed bottom-24 md:bottom-6 right-4 z-50 bg-yellow-900 border border-yellow-700 rounded-xl px-4 py-3 shadow-xl max-w-xs flex items-start gap-3 animate-slide-up">
+      <Bell size={16} className="text-yellow-400 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-white">Recordatorio</p>
+        <p className="text-xs text-yellow-200 truncate">{reminder.title}</p>
+        <p className="text-xs text-yellow-400/70">{reminder.contact_name}</p>
+      </div>
+      <button onClick={onClose} className="text-yellow-600 hover:text-white"><X size={13} /></button>
+    </div>
+  );
+}
+
 const BOTTOM_NAV = [
   { to: '/inbox',    icon: Inbox,          label: 'Bandeja', end: false },
   { to: '/contacts', icon: Users,          label: 'Contactos', end: false },
@@ -57,6 +227,8 @@ function buildSidebarNav(role) {
     { to: '/broadcast',   icon: Send,            label: 'Mensajes',   end: false },
     { to: '/',            icon: LayoutDashboard, label: 'Dashboard',  end: true },
     { to: '/search',      icon: Search,          label: 'Buscar',     end: false },
+    { to: '/reminders',   icon: Bell,            label: 'Recordatorios', end: false },
+    { to: '/trash',       icon: Trash2,          label: 'Papelera',   end: false },
   ];
   if (role === 'admin') {
     nav.push(
@@ -65,59 +237,34 @@ function buildSidebarNav(role) {
       { to: '/auto-reply', icon: Bot,      label: 'AutoReply',  end: false },
       { to: '/team',       icon: Users2,   label: 'Equipo',     end: false },
       { to: '/sessions',   icon: Wifi,     label: 'Sesiones',   end: false },
+      { to: '/webhook-log',icon: Activity, label: 'Webhook Log',end: false },
       { to: '/settings',   icon: Settings, label: 'Config',     end: false },
     );
   }
   return nav;
 }
 
-function useUnreadCount(active) {
-  const [count, setCount] = useState(0);
-  const prevCount = useRef(0);
-  const initialized = useRef(false);
-
-  useEffect(() => {
-    if (!active) return;
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-
-    const check = () =>
-      apiFetch('/api/inbox').then(r => r?.json()).then(data => {
-        if (!data) return;
-        const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
-        if (initialized.current && newCount > prevCount.current) {
-          playNotificationSound();
-          if (document.hidden) sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} mensaje${newCount > 1 ? 's' : ''} sin leer`);
-        }
-        prevCount.current = newCount;
-        initialized.current = true;
-        setCount(newCount);
-      }).catch(() => {});
-
-    check();
-    const t = setInterval(check, 8000);
-    return () => clearInterval(t);
-  }, [active]);
-
-  useEffect(() => {
-    document.title = count > 0 ? `(${count}) Rinran CRM` : 'Rinran CRM';
-  }, [count]);
-
-  return count;
-}
-
-function Sidebar({ unread, onLogout, user }) {
+function Sidebar({ unread, onLogout, user, onQuickCompose, theme, onToggleTheme }) {
   const nav = buildSidebarNav(user?.role);
   return (
     <aside className="hidden md:flex w-56 bg-gray-900 border-r border-gray-800 flex-col shrink-0">
-      <div className="p-4 border-b border-gray-800">
+      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MessageSquare className="text-green-400" size={20} />
           <span className="text-base font-bold text-white">Rinran <span className="text-green-400">CRM</span></span>
         </div>
+        <button onClick={onToggleTheme} title={theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
+          className="text-gray-500 hover:text-white transition-colors">
+          {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
       </div>
-      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+      <div className="px-2 pt-2">
+        <button onClick={onQuickCompose}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-800 text-green-400 hover:bg-green-500/20 text-xs font-medium transition-colors">
+          <Pencil size={13} /> Mensaje rápido
+        </button>
+      </div>
+      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto mt-1">
         {nav.map(({ to, icon: Icon, label, end }) => (
           <NavLink key={to} to={to} end={end}
             className={({ isActive }) =>
@@ -180,9 +327,17 @@ function BottomNav({ unread }) {
 
 export default function App() {
   const { token, user, logout, checking } = useAuth();
-  const unread = useUnreadCount(!!token);
+  const [theme, toggleTheme] = useTheme();
+  const [showCompose, setShowCompose] = useState(false);
+  const [activeReminder, setActiveReminder] = useState(null);
   const location = useLocation();
   const isChat = location.pathname.startsWith('/contacts/');
+
+  const unread = useRealtimeUnread(
+    token,
+    () => {},
+    data => setActiveReminder(data)
+  );
 
   if (checking) {
     return (
@@ -197,7 +352,9 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar unread={unread} onLogout={logout} user={user} />
+      <Sidebar unread={unread} onLogout={logout} user={user}
+        onQuickCompose={() => setShowCompose(true)}
+        theme={theme} onToggleTheme={toggleTheme} />
       <main className={`flex-1 overflow-y-auto scrollbar-thin ${isChat ? '' : 'pb-16 md:pb-0'}`}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -213,9 +370,14 @@ export default function App() {
           <Route path="/auto-reply" element={<AutoReply />} />
           <Route path="/search" element={<GlobalSearch />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/reminders" element={<Reminders />} />
+          <Route path="/trash" element={<Trash />} />
+          <Route path="/webhook-log" element={<WebhookLog />} />
         </Routes>
       </main>
       <BottomNav unread={unread} />
+      {showCompose && <QuickCompose onClose={() => setShowCompose(false)} />}
+      {activeReminder && <ReminderToast reminder={activeReminder} onClose={() => setActiveReminder(null)} />}
     </div>
   );
 }

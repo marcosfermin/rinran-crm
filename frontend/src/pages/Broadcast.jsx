@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import { Send, Users, CheckCircle, Clock, Paperclip, X, File, Image, ChevronDown, BarChart2, Calendar } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
+function DeliveryBar({ total, sent, delivered, read }) {
+  if (!total) return null;
+  const sentPct = Math.round((sent / total) * 100);
+  const deliveredPct = Math.round(((delivered || 0) / total) * 100);
+  const readPct = Math.round(((read || 0) / total) * 100);
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-2 text-[10px] text-gray-500">
+        <span className="flex-1">Entrega</span>
+        <span className="text-green-400">{sentPct}% enviado</span>
+        <span className="text-blue-400">{deliveredPct}% entregado</span>
+        <span className="text-purple-400">{readPct}% leído</span>
+      </div>
+      <div className="h-2 bg-gray-700 rounded-full overflow-hidden flex">
+        <div className="h-full bg-purple-500" style={{ width: `${readPct}%` }} title={`Leído: ${read || 0}`} />
+        <div className="h-full bg-blue-500" style={{ width: `${Math.max(0, deliveredPct - readPct)}%` }} title={`Entregado: ${delivered || 0}`} />
+        <div className="h-full bg-green-500/60" style={{ width: `${Math.max(0, sentPct - deliveredPct)}%` }} title={`Enviado: ${sent}`} />
+      </div>
+    </div>
+  );
+}
+
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -243,8 +265,11 @@ export default function Broadcast() {
                   <div className="flex gap-4 text-xs">
                     <span className="text-gray-500">Total: <span className="text-gray-300">{b.total_recipients}</span></span>
                     <span className="text-green-400">✓ {b.sent_count}</span>
+                    {b.delivered_count > 0 && <span className="text-blue-400">● {b.delivered_count}</span>}
+                    {b.read_count > 0 && <span className="text-purple-400">👁 {b.read_count}</span>}
                     {b.failed_count > 0 && <span className="text-red-400">✗ {b.failed_count}</span>}
                   </div>
+                  <DeliveryBar total={b.total_recipients} sent={b.sent_count} delivered={b.delivered_count} read={b.read_count} />
                 </button>
 
                 {expandedBroadcast === b.id && recipients[b.id] && (

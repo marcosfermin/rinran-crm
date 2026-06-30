@@ -35,8 +35,8 @@ function fromWaId(waId) {
 }
 
 // Send a text message via WAHA REST format
-async function sendText(phone, text, waChatId, quotedMessageId) {
-  const session = await getSession();
+async function sendText(phone, text, waChatId, quotedMessageId, sessionName) {
+  const session = sessionName ? { name: sessionName } : await getSession();
   const chatId = waChatId || toWaId(phone);
   const body = { chatId, text, session: session?.name || 'default' };
   if (quotedMessageId) body.quotedMessageId = quotedMessageId;

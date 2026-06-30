@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, MessageSquare, TrendingUp, Bell, Clock, Inbox, CheckCircle, GitBranch } from 'lucide-react';
+import { Users, MessageSquare, TrendingUp, Bell, Clock, Inbox, GitBranch, Download, UserCheck } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 const STAGE_COLORS = {
@@ -102,6 +102,16 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, []);
 
+  async function exportCSV() {
+    const r = await apiFetch('/api/stats/export');
+    if (!r?.ok) return;
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'contactos.csv'; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) return (
     <div className="p-4 flex items-center justify-center h-64">
       <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
@@ -112,7 +122,13 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-xl font-bold text-white">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-white">Dashboard</h1>
+        <button onClick={exportCSV}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors">
+          <Download size={13} /> Exportar CSV
+        </button>
+      </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -197,6 +213,49 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Agent metrics */}
+      {stats?.agentMetrics?.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+            <UserCheck size={12} /> Rendimiento por agente
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 border-b border-gray-800">
+                  <th className="text-left py-2 font-medium">Agente</th>
+                  <th className="text-right py-2 font-medium">Conversaciones</th>
+                  <th className="text-right py-2 font-medium">Abiertas</th>
+                  <th className="text-right py-2 font-medium">T. Resp. promedio</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {stats.agentMetrics.map(a => (
+                  <tr key={a.id} className="text-xs">
+                    <td className="py-2.5 text-gray-300">{a.name}</td>
+                    <td className="py-2.5 text-right text-white font-medium">{a.conversations}</td>
+                    <td className="py-2.5 text-right text-yellow-400">{a.open_convs}</td>
+                    <td className="py-2.5 text-right text-gray-400">
+                      {a.avg_response_minutes ? `${Math.round(a.avg_response_minutes)}m` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {stats?.overdueReminders > 0 && (
+        <div className="bg-red-950/20 border border-red-800/50 rounded-xl p-4 flex items-center gap-3">
+          <Bell size={16} className="text-red-400 shrink-0" />
+          <p className="text-sm text-red-300">
+            Tienes <span className="font-bold">{stats.overdueReminders}</span> recordatorio{stats.overdueReminders !== 1 ? 's' : ''} vencido{stats.overdueReminders !== 1 ? 's' : ''}.{' '}
+            <a href="/reminders" className="underline text-red-400 hover:text-red-300">Ver recordatorios</a>
+          </p>
+        </div>
+      )}
     </div>
   );
 }

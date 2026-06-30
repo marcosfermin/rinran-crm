@@ -3,6 +3,7 @@ const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
 const { fromWaId, sendText } = require('../whatsapp');
+const { broadcast: sseEmit } = require('./sse');
 
 router.get('/', (req, res) => {
   res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
@@ -13,6 +14,15 @@ router.post('/', async (req, res) => {
 
   const body = req.body;
   const event = body?.event || '';
+
+  // Log all events
+  try {
+    const db = getDb();
+    const payload = JSON.stringify(body).slice(0, 4000);
+    db.prepare('INSERT INTO webhook_log (event_type, session, payload) VALUES (?, ?, ?)').run(event || 'unknown', body?.session || '', payload);
+    // Keep only last 500 entries
+    db.prepare('DELETE FROM webhook_log WHERE id NOT IN (SELECT id FROM webhook_log ORDER BY id DESC LIMIT 500)').run();
+  } catch {}
 
   // Handle delivery/read ACKs for broadcast tracking
   if (event === 'message.ack' || event === 'message:ack') {
@@ -70,11 +80,21 @@ router.post('/', async (req, res) => {
 
     if (!contact) {
       const groupNote = isGroup ? `Participante del grupo ${rawFrom.replace('@g.us', '')}` : null;
+
+      // Auto-assignment: find matching rule (by category_id=null means any, or specific category later)
+      let autoAssignAgent = null;
+      try {
+        const rules = db.prepare("SELECT * FROM assignment_rules WHERE is_active = 1 ORDER BY sort_order, id").all();
+        // First matching rule with no category constraint
+        const rule = rules.find(r => !r.category_id);
+        if (rule) autoAssignAgent = rule.agent_id;
+      } catch {}
+
       const r = db.prepare(`
-        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id, wa_session, notes)
-        VALUES (?, ?, ?, ?, ?, 'whatsapp', ?, ?, ?)
+        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id, wa_session, notes, assigned_to)
+        VALUES (?, ?, ?, ?, ?, 'whatsapp', ?, ?, ?, ?)
       `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name,
-             isGroup ? senderRaw : rawFrom, sessionName, groupNote);
+             isGroup ? senderRaw : rawFrom, sessionName, groupNote, autoAssignAgent || null);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
       console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
     } else {
@@ -103,6 +123,9 @@ router.post('/', async (req, res) => {
     db.prepare("UPDATE contacts SET conv_status = 'open', updated_at = datetime('now') WHERE id = ? AND conv_status != 'open'").run(contact.id);
 
     console.log(`[webhook] ✓ ${parsed.phone} (${senderName}): ${text.slice(0, 80)}`);
+
+    // Emit SSE to connected browser clients
+    try { sseEmit('message', { contact_id: contact.id, phone: contact.phone, name: contact.name }); } catch {}
 
     // Auto-reply rules
     setImmediate(() => processAutoReply(db, contact, text, isNew));

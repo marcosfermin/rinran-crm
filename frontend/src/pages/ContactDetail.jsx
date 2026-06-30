@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag, Bell } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -110,6 +110,9 @@ export default function ContactDetail() {
   const [replyTo, setReplyTo] = useState(null);
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
+  const [reminders, setReminders] = useState([]);
+  const [reminderForm, setReminderForm] = useState({ title: '', note: '', due_at: '' });
+  const [showReminderAdd, setShowReminderAdd] = useState(false);
   const [allTags, setAllTags] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [customFieldEdits, setCustomFieldEdits] = useState({});
@@ -137,9 +140,29 @@ export default function ContactDetail() {
     apiFetch(`/api/contacts/${id}/notes`).then(r => r?.json()).then(d => d && setNotes(Array.isArray(d) ? d : []));
   }
 
+  function loadReminders() {
+    apiFetch(`/api/reminders?contact_id=${id}`).then(r => r?.json()).then(d => d && setReminders(Array.isArray(d) ? d : []));
+  }
+
+  async function addReminder(e) {
+    e.preventDefault();
+    const r = await apiFetch('/api/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...reminderForm, contact_id: id }),
+    });
+    if (r?.ok) { setShowReminderAdd(false); setReminderForm({ title: '', note: '', due_at: '' }); loadReminders(); }
+  }
+
+  async function markReminderDone(rid) {
+    await apiFetch(`/api/reminders/${rid}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done: true }) });
+    loadReminders();
+  }
+
   useEffect(() => {
     load();
     loadNotes();
+    loadReminders();
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(d));
     apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
     apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
@@ -341,7 +364,7 @@ export default function ContactDetail() {
       {showInfo && (
         <div className="bg-gray-900/80 border-b border-gray-800 px-4 py-3 space-y-3 shrink-0">
           <div className="flex gap-3 border-b border-gray-800 -mx-4 px-4 overflow-x-auto">
-            {[['chat', MessageSquare, 'Info'], ['notes', StickyNote, 'Notas'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
+            {[['chat', MessageSquare, 'Info'], ['notes', StickyNote, 'Notas'], ['reminders', Bell, 'Recordatorios'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`flex items-center gap-1.5 pb-2 px-1 text-xs font-medium border-b-2 transition-colors shrink-0 ${activeTab === tab ? 'border-green-500 text-green-400' : 'border-transparent text-gray-500 hover:text-white'}`}>
                 <Icon size={12} /> {label}
@@ -379,6 +402,53 @@ export default function ContactDetail() {
                     <button onClick={() => deleteNote(n.id)} className="p-0.5 text-gray-600 hover:text-red-400 transition-colors shrink-0"><Trash2 size={11} /></button>
                   </div>
                 ))}
+              </div>
+            </div>
+          ) : activeTab === 'reminders' ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">{reminders.filter(r => !r.done).length} pendiente(s)</p>
+                <button onClick={() => setShowReminderAdd(v => !v)}
+                  className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300">
+                  <Plus size={12} /> Nuevo
+                </button>
+              </div>
+              {showReminderAdd && (
+                <form onSubmit={addReminder} className="space-y-2 bg-gray-800 rounded-lg p-3">
+                  <input required value={reminderForm.title} onChange={e => setReminderForm(f => ({ ...f, title: e.target.value }))}
+                    placeholder="Título del recordatorio"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                  <input type="datetime-local" required value={reminderForm.due_at}
+                    onChange={e => setReminderForm(f => ({ ...f, due_at: e.target.value }))}
+                    min={new Date().toISOString().slice(0, 16)}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                  <div className="flex gap-1.5">
+                    <button type="button" onClick={() => setShowReminderAdd(false)}
+                      className="flex-1 py-1.5 rounded border border-gray-600 text-xs text-gray-400">Cancelar</button>
+                    <button type="submit"
+                      className="flex-1 py-1.5 rounded bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-medium">Guardar</button>
+                  </div>
+                </form>
+              )}
+              <div className="max-h-48 overflow-y-auto space-y-1.5">
+                {!reminders.length ? <p className="text-xs text-gray-600">Sin recordatorios</p> : reminders.map(r => {
+                  const due = new Date(r.due_at.replace(' ', 'T') + 'Z');
+                  const overdue = !r.done && due < new Date();
+                  return (
+                    <div key={r.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${overdue ? 'border-red-800/50 bg-red-950/10' : 'border-gray-700 bg-gray-800/50'}`}>
+                      <button onClick={() => !r.done && markReminderDone(r.id)}
+                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${r.done ? 'bg-green-500 border-green-500' : 'border-gray-500 hover:border-yellow-400'}`}>
+                        {r.done && <Check size={9} className="text-white" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={r.done ? 'line-through text-gray-500' : 'text-white'}>{r.title}</p>
+                        <p className={`text-[10px] ${overdue ? 'text-red-400' : 'text-gray-500'}`}>
+                          {due.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : editing ? (

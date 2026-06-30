@@ -16,7 +16,7 @@ router.get('/', (req, res) => {
   const { category_id, status, search, pipeline_stage, assigned_to, conv_status, page = 1, limit = 50 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  let where = ['1=1'];
+  let where = ['c.is_deleted != 1'];
   const params = [];
 
   // Agents only see their assigned contacts
@@ -148,7 +148,7 @@ router.post('/bulk', (req, res) => {
   } else if (action === 'set_conv_status') {
     db.prepare(`UPDATE contacts SET conv_status = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
   } else if (action === 'delete') {
-    db.prepare(`DELETE FROM contacts WHERE id IN (${placeholders})`).run(...ids);
+    db.prepare(`UPDATE contacts SET is_deleted = 1, updated_at = datetime('now') WHERE id IN (${placeholders})`).run(...ids);
   } else {
     return res.status(400).json({ error: 'Unknown action' });
   }
@@ -372,9 +372,9 @@ router.patch('/:id', (req, res) => {
   }
 });
 
-// DELETE /contacts/:id
+// DELETE /contacts/:id — soft delete
 router.delete('/:id', (req, res) => {
-  getDb().prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  getDb().prepare("UPDATE contacts SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?").run(req.params.id);
   res.json({ ok: true });
 });
 

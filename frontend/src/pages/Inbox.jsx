@@ -82,10 +82,16 @@ export default function InboxPage() {
   }, [search, convStatusFilter, agentFilter]);
 
   useEffect(() => { load(); }, [load]);
+
+  // SSE: reload inbox on new inbound message (no polling needed)
+  const { token } = useAuth();
   useEffect(() => {
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
-  }, [load]);
+    if (!token) return;
+    const es = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
+    es.addEventListener('message', () => load());
+    es.onerror = () => {};
+    return () => es.close();
+  }, [token, load]);
 
   useEffect(() => {
     if (user?.role === 'admin') {

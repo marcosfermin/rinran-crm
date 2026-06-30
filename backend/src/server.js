@@ -71,6 +71,23 @@ app.use('/api/saved-filters', auth, require('./routes/savedFilters'));
 app.use('/api/settings',      auth, require('./routes/settings'));
 app.use('/api/tags',          auth, require('./routes/tags'));
 app.use('/api/contacts/:contactId/notes', auth, require('./routes/internalNotes'));
+app.use('/api/reminders',     auth, require('./routes/reminders'));
+app.use('/api/trash',         auth, require('./routes/trash'));
+app.use('/api/webhook-log',   auth, require('./routes/webhookLog'));
+
+// SSE — real-time push (auth via query param token for EventSource)
+const { sseRouter } = require('./routes/sse');
+app.get('/api/sse', (req, res) => {
+  // Validate token from query string (EventSource can't set headers)
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+  try {
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.JWT_SECRET || 'rinran-secret-change-me';
+    req.user = jwt.verify(token, secret);
+    sseRouter(req, res);
+  } catch { res.status(401).end(); }
+});
 
 // WAHA sessions proxy
 const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';
@@ -105,6 +122,18 @@ app.get('/api/wa/sessions/:name/qr', auth, async (req, res) => {
     res.json(r.data);
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
+
+// Reminder scheduler — emit SSE when reminders come due
+const { broadcast: sseEmit } = require('./routes/sse');
+setInterval(() => {
+  try {
+    const db = getDb();
+    const due = db.prepare("SELECT r.*, c.name as contact_name FROM reminders r JOIN contacts c ON r.contact_id = c.id WHERE r.done = 0 AND r.due_at <= datetime('now')").all();
+    for (const r of due) {
+      sseEmit('reminder', { id: r.id, title: r.title, contact_id: r.contact_id, contact_name: r.contact_name });
+    }
+  } catch {}
+}, 30000);
 
 // Broadcast scheduler — check every 60s for scheduled broadcasts ready to fire
 setInterval(async () => {

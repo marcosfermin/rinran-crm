@@ -212,4 +212,40 @@ async function runSync() {
   }
 }
 
+// GET /sync/phonebook — import contacts from WAHA's contact list
+router.get('/phonebook', async (req, res) => {
+  try {
+    const { getSession } = require('../whatsapp');
+    const axios = require('axios');
+    const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';
+    const WAHA_KEY = process.env.OPENWA_API_KEY || '';
+    const session = await getSession();
+    if (!session) return res.status(503).json({ error: 'No WAHA session active' });
+    const r = await axios.get(`${WAHA_URL}/api/${session.name}/contacts`, {
+      headers: { 'X-Api-Key': WAHA_KEY, Accept: 'application/json' },
+      timeout: 30000,
+    });
+    const raw = Array.isArray(r.data) ? r.data : [];
+    const db = getDb();
+    let imported = 0, skipped = 0;
+    for (const wc of raw) {
+      const rawId = wc.id || wc.id?._serialized || '';
+      if (!rawId || rawId.endsWith('@g.us') || rawId.endsWith('@broadcast')) continue;
+      const phone = fromWaId(rawId);
+      const name = wc.name || wc.pushname || wc.notify || `WhatsApp ${phone}`;
+      const parsed = parsePhone(phone);
+      try {
+        db.prepare(`
+          INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id, wa_session)
+          VALUES (?, ?, ?, ?, ?, 'whatsapp', ?, ?)
+        `).run(name, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawId, session.name);
+        imported++;
+      } catch { skipped++; }
+    }
+    res.json({ imported, skipped, total: raw.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

@@ -226,7 +226,10 @@ router.post('/:id/download-media', async (req, res) => {
 router.get('/broadcasts', (req, res) => {
   const db = getDb();
   const broadcasts = db.prepare(`
-    SELECT b.*, cat.name as category_name FROM broadcasts b
+    SELECT b.*, cat.name as category_name,
+      (SELECT COUNT(*) FROM broadcast_recipients WHERE broadcast_id = b.id AND status = 'delivered') as delivered_count,
+      (SELECT COUNT(*) FROM broadcast_recipients WHERE broadcast_id = b.id AND status = 'read') as read_count
+    FROM broadcasts b
     LEFT JOIN categories cat ON b.category_id = cat.id
     ORDER BY b.created_at DESC LIMIT 50
   `).all();
@@ -262,6 +265,26 @@ router.get('/search', (req, res) => {
   `).all(`%${q}%`, parseInt(limit));
 
   res.json(results);
+});
+
+// POST /messages/quick-send — send to any phone without needing a saved contact
+router.post('/quick-send', async (req, res) => {
+  const db = getDb();
+  const { phone, message, session_name } = req.body;
+  if (!phone || !message) return res.status(400).json({ error: 'phone and message required' });
+  const { parsePhone } = require('../phoneUtils');
+  const { toWaId } = require('../whatsapp');
+  const parsed = parsePhone(phone);
+  const chatId = toWaId(parsed.phone);
+  let status = 'sent', wa_message_id = null;
+  try {
+    const result = await sendText(parsed.phone, message, chatId, undefined, session_name);
+    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
+  } catch (e) {
+    status = 'failed';
+    console.error('[messages] quick-send error:', e.response?.data || e.message);
+  }
+  res.json({ ok: true, phone: parsed.phone, status, wa_message_id });
 });
 
 module.exports = { router, fireBroadcast };

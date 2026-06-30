@@ -14,4 +14,12 @@
     scrollbar-width: thin;
     scrollbar-color: #374151 transparent;
   }
+  .animate-slide-up {
+    animation: slideUp 0.25s ease-out;
+  }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
 }

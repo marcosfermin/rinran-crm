@@ -126,6 +126,39 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_internal_notes_contact ON internal_notes(contact_id);
     CREATE INDEX IF NOT EXISTS idx_contact_tags ON contact_tags(contact_id);
 
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      note TEXT,
+      due_at TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS assignment_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL DEFAULT '',
+      category_id INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+      agent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS webhook_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT,
+      session TEXT,
+      payload TEXT,
+      received_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reminders_contact ON reminders(contact_id);
+    CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(due_at, done);
+    CREATE INDEX IF NOT EXISTS idx_webhook_log_received ON webhook_log(received_at);
+
     CREATE TABLE IF NOT EXISTS auto_reply_rules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -192,6 +225,9 @@ function initSchema() {
   try { db.exec('ALTER TABLE broadcasts ADD COLUMN scheduled_at TEXT'); } catch {}
   try { db.exec("ALTER TABLE broadcasts ADD COLUMN pipeline_stage TEXT"); } catch {}
   try { db.exec("ALTER TABLE broadcasts ADD COLUMN tag_id INTEGER"); } catch {}
+  try { db.exec("ALTER TABLE contacts ADD COLUMN is_deleted INTEGER DEFAULT 0"); } catch {}
+  try { db.exec("ALTER TABLE users ADD COLUMN two_fa_secret TEXT"); } catch {}
+  try { db.exec("ALTER TABLE users ADD COLUMN two_fa_enabled INTEGER DEFAULT 0"); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

@@ -124,17 +124,26 @@ export default function Broadcast() {
       body.file = { data: attachFile.data, filename: attachFile.name, mimetype: attachFile.type, caption: form.message || undefined };
     }
 
-    const r = await apiFetch('/api/messages/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const res = await r?.json();
-    if (res) {
-      setSuccess(isScheduled
-        ? `Broadcast programado para ${new Date(form.scheduled_at).toLocaleString('es')} — ${res.total} destinatarios`
-        : `Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
+    try {
+      const r = await apiFetch('/api/messages/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await r?.json();
+      if (!r?.ok) {
+        alert(res?.error || `Error ${r?.status}: no se pudo enviar el broadcast`);
+        return;
+      }
+      if (res) {
+        setSuccess(isScheduled
+          ? `Broadcast programado para ${new Date(form.scheduled_at).toLocaleString('es')} — ${res.total} destinatarios`
+          : `Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
+      }
+      setForm({ name: '', message: '', category_id: '', pipeline_stage: '', tag_id: '', scheduled_at: '' });
+      setAttachFile(null);
+      setTimeout(() => { setSuccess(null); loadBroadcasts(); }, 4000);
+    } catch (err) {
+      alert('Error de red al enviar el broadcast');
+    } finally {
+      setSending(false);
     }
-    setForm({ name: '', message: '', category_id: '', pipeline_stage: '', tag_id: '', scheduled_at: '' });
-    setAttachFile(null);
-    setSending(false);
-    setTimeout(() => { setSuccess(null); loadBroadcasts(); }, 4000);
   }
 
   async function loadRecipients(broadcastId) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight, Mail, Database, Download, Upload, Eye, EyeOff, Copy, Link, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight, Mail, Database, Download, Upload, Eye, EyeOff, Copy, Link, RefreshCw, ChevronUp, ChevronDown, Send } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -19,7 +19,7 @@ export default function Settings() {
   const [webhookMsg, setWebhookMsg] = useState('');
 
   const [customFields, setCustomFields] = useState([]);
-  const [newField, setNewField] = useState({ name: '', field_type: 'text' });
+  const [newField, setNewField] = useState({ name: '', field_type: 'text', selectOptions: '' });
 
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState({ name: '', color: '#6366f1' });
@@ -63,6 +63,8 @@ export default function Settings() {
   const [outboundHooks, setOutboundHooks] = useState([]);
   const [newHook, setNewHook] = useState({ name: '', url: '', events: 'message.inbound', secret: '' });
   const [hookMsg, setHookMsg] = useState('');
+  const [hookTestingId, setHookTestingId] = useState(null);
+  const [hookTestMsg, setHookTestMsg] = useState({});
 
   // API keys
   const [apiKeys, setApiKeys] = useState([]);
@@ -113,9 +115,13 @@ export default function Settings() {
 
   async function addCustomField() {
     if (!newField.name.trim()) return;
-    const r = await apiFetch('/api/settings/custom-fields', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newField) });
+    const payload = { name: newField.name, field_type: newField.field_type };
+    if (newField.field_type === 'select' && newField.selectOptions.trim()) {
+      payload.options = newField.selectOptions.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    const r = await apiFetch('/api/settings/custom-fields', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const d = await r?.json();
-    if (r?.ok) { setCustomFields(prev => [...prev, d]); setNewField({ name: '', field_type: 'text' }); }
+    if (r?.ok) { setCustomFields(prev => [...prev, d]); setNewField({ name: '', field_type: 'text', selectOptions: '' }); }
   }
 
   async function deleteCustomField(id) {
@@ -281,6 +287,17 @@ export default function Settings() {
     if (!confirm('¿Eliminar webhook?')) return;
     await apiFetch(`/api/settings/outbound-webhooks/${id}`, { method: 'DELETE' });
     setOutboundHooks(prev => prev.filter(h => h.id !== id));
+  }
+
+  async function testOutboundHook(id) {
+    setHookTestingId(id);
+    setHookTestMsg(prev => ({ ...prev, [id]: null }));
+    const r = await apiFetch(`/api/settings/outbound-webhooks/${id}/test`, { method: 'POST' });
+    const d = await r?.json();
+    const msg = r?.ok ? `OK (HTTP ${d.status})` : (d?.error || 'Error');
+    setHookTestMsg(prev => ({ ...prev, [id]: { ok: r?.ok, text: msg } }));
+    setHookTestingId(null);
+    setTimeout(() => setHookTestMsg(prev => { const n = { ...prev }; delete n[id]; return n; }), 5000);
   }
 
   async function createApiKey() {
@@ -613,9 +630,16 @@ export default function Settings() {
           <div className="space-y-2 mb-4">
             {customFields.map(f => (
               <div key={f.id} className="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2.5">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <p className="text-sm text-white">{f.name}</p>
-                  <p className="text-xs text-gray-500">{f.field_type}</p>
+                  <p className="text-xs text-gray-500">
+                    {f.field_type}
+                    {f.field_type === 'select' && f.options_json && (
+                      <span className="ml-1 text-gray-600">
+                        ({JSON.parse(f.options_json).join(', ')})
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <button onClick={() => deleteCustomField(f.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
                   <Trash2 size={14} />
@@ -628,17 +652,23 @@ export default function Settings() {
             <input value={newField.name} onChange={e => setNewField(n => ({ ...n, name: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addCustomField()} placeholder="Nombre del campo..."
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
-            <select value={newField.field_type} onChange={e => setNewField(n => ({ ...n, field_type: e.target.value }))}
+            <select value={newField.field_type} onChange={e => setNewField(n => ({ ...n, field_type: e.target.value, selectOptions: '' }))}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
               <option value="text">Texto</option>
               <option value="number">Número</option>
               <option value="date">Fecha</option>
               <option value="url">URL</option>
+              <option value="select">Lista</option>
             </select>
             <button onClick={addCustomField} className="flex items-center gap-1 bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg text-sm transition-colors">
               <Plus size={14} /> Agregar
             </button>
           </div>
+          {newField.field_type === 'select' && (
+            <input value={newField.selectOptions} onChange={e => setNewField(n => ({ ...n, selectOptions: e.target.value }))}
+              placeholder="Opciones separadas por coma: Opción A, Opción B, Opción C"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+          )}
         </section>
       )}
 
@@ -732,18 +762,31 @@ export default function Settings() {
           <div className="space-y-2 mb-4">
             {outboundHooks.length === 0 && <p className="text-xs text-gray-600">Sin webhooks configurados</p>}
             {outboundHooks.map(h => (
-              <div key={h.id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 border ${h.is_active ? 'border-gray-700 bg-gray-800' : 'border-gray-800 bg-gray-900 opacity-60'}`}>
-                <button onClick={() => toggleOutboundHook(h.id, h.is_active)}>
-                  {h.is_active ? <ToggleRight size={20} className="text-green-400" /> : <ToggleLeft size={20} className="text-gray-600" />}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white">{h.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{h.url}</p>
+              <div key={h.id} className={`flex flex-col gap-1 rounded-lg px-3 py-2.5 border ${h.is_active ? 'border-gray-700 bg-gray-800' : 'border-gray-800 bg-gray-900 opacity-60'}`}>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => toggleOutboundHook(h.id, h.is_active)}>
+                    {h.is_active ? <ToggleRight size={20} className="text-green-400" /> : <ToggleLeft size={20} className="text-gray-600" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white">{h.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{h.url}</p>
+                  </div>
+                  <span className="text-[10px] text-gray-600 shrink-0">{h.events}</span>
+                  <button onClick={() => testOutboundHook(h.id)} disabled={hookTestingId === h.id}
+                    className="p-1 text-gray-500 hover:text-blue-400 disabled:opacity-40 shrink-0 transition-colors" title="Probar webhook">
+                    {hookTestingId === h.id
+                      ? <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      : <Send size={13} />}
+                  </button>
+                  <button onClick={() => deleteOutboundHook(h.id)} className="p-1 text-gray-600 hover:text-red-400 shrink-0">
+                    <Trash2 size={13} />
+                  </button>
                 </div>
-                <span className="text-[10px] text-gray-600 shrink-0">{h.events}</span>
-                <button onClick={() => deleteOutboundHook(h.id)} className="p-1 text-gray-600 hover:text-red-400 shrink-0">
-                  <Trash2 size={13} />
-                </button>
+                {hookTestMsg[h.id] && (
+                  <p className={`text-[11px] pl-8 ${hookTestMsg[h.id].ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {hookTestMsg[h.id].text}
+                  </p>
+                )}
               </div>
             ))}
           </div>

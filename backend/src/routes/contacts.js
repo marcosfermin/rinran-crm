@@ -65,18 +65,27 @@ router.get('/', (req, res) => {
 // GET /contacts/export — CSV export
 router.get('/export', (req, res) => {
   const db = getDb();
-  const { category_id, status, search } = req.query;
-  let where = ['1=1'];
+  const { category_id, status, search, pipeline_stage, conv_status, tag_id } = req.query;
+  let where = ['c.is_deleted != 1'];
   const params = [];
   if (req.user.role === 'agent') { where.push('c.assigned_to = ?'); params.push(req.user.id); }
   if (category_id) { where.push('c.category_id = ?'); params.push(category_id); }
   if (status) { where.push('c.status = ?'); params.push(status); }
+  if (pipeline_stage) { where.push('c.pipeline_stage = ?'); params.push(pipeline_stage); }
+  if (conv_status) { where.push('c.conv_status = ?'); params.push(conv_status); }
   if (search) { where.push('(c.name LIKE ? OR c.phone LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
+
+  let joinTag = '';
+  if (tag_id) {
+    joinTag = 'JOIN contact_tags ct ON ct.contact_id = c.id AND ct.tag_id = ?';
+    params.unshift(tag_id);
+  }
 
   const contacts = db.prepare(`
     SELECT c.name, c.phone, c.country_name, cat.name as category, c.pipeline_stage,
            c.conv_status, c.notes, c.status, c.source, c.created_at
     FROM contacts c LEFT JOIN categories cat ON c.category_id = cat.id
+    ${joinTag}
     WHERE ${where.join(' AND ')}
     ORDER BY c.name
   `).all(...params);

@@ -30,6 +30,9 @@ router.post('/send', async (req, res) => {
   const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
+  const interpolate = txt => (txt || '').replace(/\{\{nombre\}\}/g, contact.name || contact.phone).replace(/\{\{telefono\}\}/g, contact.phone);
+  const finalMessage = interpolate(message);
+
   // If replying, fetch the original WA message ID
   let quotedWaId = null;
   let replyContent = null;
@@ -42,7 +45,7 @@ router.post('/send', async (req, res) => {
   let status = 'sent';
 
   try {
-    const result = await sendText(contact.phone, message, contact.wa_chat_id, quotedWaId || undefined);
+    const result = await sendText(contact.phone, finalMessage, contact.wa_chat_id, quotedWaId || undefined);
     wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
   } catch (e) {
     status = 'failed';
@@ -52,12 +55,12 @@ router.post('/send', async (req, res) => {
   const row = db.prepare(`
     INSERT INTO messages (contact_id, direction, content, wa_message_id, status, reply_to_id, reply_to_content, reply_to_wa_id)
     VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?)
-  `).run(contact_id, message, wa_message_id, status, reply_to_id || null, replyContent || null, quotedWaId || null);
+  `).run(contact_id, finalMessage, wa_message_id, status, reply_to_id || null, replyContent || null, quotedWaId || null);
 
   // Auto-open conv_status when we send a message
   db.prepare("UPDATE contacts SET conv_status = 'open', updated_at = datetime('now') WHERE id = ? AND conv_status = 'closed'").run(contact_id);
 
-  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message }));
+  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: finalMessage }));
 
   res.json({ id: row.lastInsertRowid, status, wa_message_id });
 });

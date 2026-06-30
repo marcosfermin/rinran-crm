@@ -669,18 +669,33 @@ export default function ContactDetail() {
                 <div>
                   <span className="text-gray-500 text-xs mb-1.5 block">Campos personalizados</span>
                   <div className="space-y-1.5">
-                    {customFields.map(f => (
-                      <div key={f.field_def_id} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 w-24 shrink-0 truncate">{f.name}</span>
-                        <input
-                          type={f.field_type === 'number' ? 'number' : f.field_type === 'date' ? 'date' : f.field_type === 'url' ? 'url' : 'text'}
-                          value={customFieldEdits[f.field_def_id] ?? ''}
-                          onChange={e => setCustomFieldEdits(prev => ({ ...prev, [f.field_def_id]: e.target.value }))}
-                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
-                          placeholder={`Valor de ${f.name}...`}
-                        />
-                      </div>
-                    ))}
+                    {customFields.map(f => {
+                      const selectOpts = f.field_type === 'select' && f.options_json
+                        ? (() => { try { return JSON.parse(f.options_json); } catch { return []; } })()
+                        : null;
+                      return (
+                        <div key={f.field_def_id} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 w-24 shrink-0 truncate">{f.name}</span>
+                          {selectOpts ? (
+                            <select
+                              value={customFieldEdits[f.field_def_id] ?? ''}
+                              onChange={e => setCustomFieldEdits(prev => ({ ...prev, [f.field_def_id]: e.target.value }))}
+                              className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500">
+                              <option value="">— Elegir —</option>
+                              {selectOpts.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              type={f.field_type === 'number' ? 'number' : f.field_type === 'date' ? 'date' : f.field_type === 'url' ? 'url' : 'text'}
+                              value={customFieldEdits[f.field_def_id] ?? ''}
+                              onChange={e => setCustomFieldEdits(prev => ({ ...prev, [f.field_def_id]: e.target.value }))}
+                              className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500"
+                              placeholder={`Valor de ${f.name}...`}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                     <button onClick={saveCustomFields} disabled={savingFields}
                       className="flex items-center gap-1 text-xs text-green-400 hover:text-green-300 mt-1">
                       <Check size={11} /> {savingFields ? 'Guardando...' : 'Guardar campos'}

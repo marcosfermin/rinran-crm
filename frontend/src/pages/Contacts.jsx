@@ -73,6 +73,9 @@ export default function Contacts() {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (categoryFilter) params.set('category_id', categoryFilter);
+    if (stageFilter) params.set('pipeline_stage', stageFilter);
+    if (convStatusFilter) params.set('conv_status', convStatusFilter);
+    if (tagFilter) params.set('tag_id', tagFilter);
     window.location.href = `/api/contacts/export?${params}`;
   }
 

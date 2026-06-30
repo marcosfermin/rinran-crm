@@ -251,6 +251,25 @@ router.delete('/outbound-webhooks/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/outbound-webhooks/:id/test', async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const hook = getDb().prepare('SELECT * FROM outbound_webhooks WHERE id = ?').get(req.params.id);
+  if (!hook) return res.status(404).json({ error: 'Webhook no encontrado' });
+  const payload = { event: 'test', timestamp: new Date().toISOString(), source: 'rinran-crm', message: 'Prueba de conexión' };
+  const body = JSON.stringify(payload);
+  const headers = { 'Content-Type': 'application/json', 'X-Rinran-Event': 'test' };
+  if (hook.secret) {
+    const crypto = require('crypto');
+    headers['X-Rinran-Signature'] = 'sha256=' + crypto.createHmac('sha256', hook.secret).update(body).digest('hex');
+  }
+  try {
+    const r = await axios.post(hook.url, payload, { headers, timeout: 8000 });
+    res.json({ ok: true, status: r.status });
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.response ? `HTTP ${e.response.status}` : e.message });
+  }
+});
+
 // ── API Keys ──────────────────────────────────────────────────────────────────
 router.get('/api-keys', (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });

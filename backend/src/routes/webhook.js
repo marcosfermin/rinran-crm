@@ -24,7 +24,7 @@ router.post('/', async (req, res) => {
   // Log all events
   try {
     const db = getDb();
-    const payload = JSON.stringify(body).slice(0, 4000);
+    const payload = JSON.stringify(body).slice(0, 8000);
     db.prepare('INSERT INTO webhook_log (event_type, session, payload) VALUES (?, ?, ?)').run(event || 'unknown', body?.session || '', payload);
     // Keep only last 500 entries
     db.prepare('DELETE FROM webhook_log WHERE id NOT IN (SELECT id FROM webhook_log ORDER BY id DESC LIMIT 500)').run();
@@ -71,10 +71,17 @@ router.post('/', async (req, res) => {
     if (senderRaw.endsWith('@g.us')) return;
 
     const MEDIA_LABELS = { image: '[Foto]', video: '[Video]', audio: '[Audio]', voice: '[Audio]', ptt: '[Audio]', document: '[Archivo]', sticker: '[Sticker]' };
+    const MIME_LABELS = { 'image/': '[Foto]', 'video/': '[Video]', 'audio/': '[Audio]' };
     let text = msgData.body || msgData.content || msgData.text || '';
     if (!text.trim()) {
       if (!msgData.hasMedia) return;
-      text = MEDIA_LABELS[msgData.type] || '[Archivo]';
+      // WAHA NOWEB often omits `type` — fall back to mimetype prefix
+      let label = MEDIA_LABELS[msgData.type];
+      if (!label && msgData.media?.mimetype) {
+        const mime = msgData.media.mimetype;
+        label = Object.entries(MIME_LABELS).find(([k]) => mime.startsWith(k))?.[1];
+      }
+      text = label || '[Archivo]';
     }
 
     // LIDs (@lid) are device-internal IDs, not real phone numbers.
@@ -134,25 +141,39 @@ router.post('/', async (req, res) => {
     `).run(contact.id, text, wa_message_id);
     const msgId = insertedMsg.lastInsertRowid;
 
-    // Auto-download media so images/videos render inline instead of as placeholders.
-    // Use media.url from the webhook payload (WAHA serves it at localhost:3000 internally).
-    const mediaInfo = msgData.hasMedia && msgData.media?.url ? msgData.media : null;
+    // Auto-save media so images/videos render inline instead of as placeholders.
+    // With WHATSAPP_DOWNLOAD_MEDIA=TRUE, WAHA includes base64 data in media.data.
+    // Fallback: fetch from the media.url WAHA provides (works while WAHA caches the file).
+    const mediaInfo = msgData.hasMedia && msgData.media ? msgData.media : null;
+    console.log(`[webhook] hasMedia=${msgData.hasMedia} type=${msgData.type} mediaKeys=${mediaInfo ? Object.keys(mediaInfo).join(',') : 'none'} hasData=${!!(mediaInfo?.data)} url=${mediaInfo?.url || 'none'}`);
     if (mediaInfo) {
       setImmediate(async () => {
         try {
-          const axios = require('axios');
-          // WAHA gives http://localhost:3000/... — rewrite to the docker service name
-          const internalUrl = mediaInfo.url.replace('http://localhost:3000', 'http://waha:3000');
-          const resp = await axios.get(internalUrl, { responseType: 'arraybuffer', timeout: 30000 });
-          const contentType = mediaInfo.mimetype || resp.headers['content-type'] || 'application/octet-stream';
+          const contentType = mediaInfo.mimetype || 'application/octet-stream';
           const ext = (contentType.split('/')[1] || 'bin').split(';')[0];
           const origName = mediaInfo.filename ? mediaInfo.filename.replace(/[^a-zA-Z0-9._-]/g, '_') : '';
           const filename = `media_${msgId}${origName ? '_' + origName : '.' + ext}`;
-          fs.writeFileSync(path.join(uploadsDir, filename), Buffer.from(resp.data));
+          let buf = null;
+
+          // Prefer inline base64 data (available when WHATSAPP_DOWNLOAD_MEDIA=TRUE)
+          if (mediaInfo.data) {
+            buf = Buffer.from(mediaInfo.data, 'base64');
+          } else if (mediaInfo.url) {
+            // Fetch from WAHA's temporary file URL
+            const axios = require('axios');
+            const internalUrl = mediaInfo.url.replace('http://localhost:3000', 'http://waha:3000');
+            const wahaHeaders = {};
+            if (process.env.OPENWA_API_KEY) wahaHeaders['X-Api-Key'] = process.env.OPENWA_API_KEY;
+            const resp = await axios.get(internalUrl, { responseType: 'arraybuffer', timeout: 30000, headers: wahaHeaders });
+            buf = Buffer.from(resp.data);
+          }
+
+          if (!buf) { console.error('[webhook] media: no data or url'); return; }
+          fs.writeFileSync(path.join(uploadsDir, filename), buf);
           const localUrl = `/uploads/${filename}`;
           db.prepare('UPDATE messages SET media_url = ?, media_type = ?, media_filename = ? WHERE id = ?')
             .run(localUrl, contentType, mediaInfo.filename || filename, msgId);
-          console.log(`[webhook] media saved: ${filename} (${contentType})`);
+          console.log(`[webhook] media saved: ${filename} (${contentType}, ${buf.length} bytes)`);
         } catch (e) {
           console.error('[webhook] media auto-download failed:', e.message);
         }

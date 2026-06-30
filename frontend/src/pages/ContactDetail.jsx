@@ -94,6 +94,7 @@ export default function ContactDetail() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [showCatMenu, setShowCatMenu] = useState(false);
   const [team, setTeam] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [message, setMessage] = useState('');
@@ -402,6 +403,16 @@ export default function ContactDetail() {
     return allMessages.filter(m => m.content?.toLowerCase().includes(q));
   }, [allMessages, searchQuery]);
 
+  async function assignCategory(categoryId) {
+    setShowCatMenu(false);
+    await apiFetch(`/api/contacts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: categoryId || null }),
+    });
+    load();
+  }
+
   if (!data) return <div className="flex items-center justify-center h-full text-gray-600"><div className="animate-pulse">Cargando...</div></div>;
 
   const cat = categories.find(c => c.id === data.category_id);
@@ -646,9 +657,28 @@ export default function ContactDetail() {
             <div className="space-y-3">
               <div className="flex flex-wrap gap-3 text-sm">
                 <div><span className="text-gray-500 text-xs">País</span><p className="text-gray-200">{data.country_flag} {data.country_name}</p></div>
-                <div>
+                <div className="relative">
                   <span className="text-gray-500 text-xs">Categoría</span>
-                  <p>{cat ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span> : <span className="text-gray-600">—</span>}</p>
+                  <p>
+                    <button onClick={() => setShowCatMenu(v => !v)}
+                      className="mt-0.5 flex items-center gap-1 hover:opacity-80 transition-opacity">
+                      {cat
+                        ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span>
+                        : <span className="text-gray-500 text-xs flex items-center gap-1"><Tag size={10} /> Asignar</span>}
+                    </button>
+                  </p>
+                  {showCatMenu && (
+                    <div className="absolute left-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-30 min-w-[140px] overflow-hidden">
+                      <button onClick={() => assignCategory(null)} className="w-full text-left px-3 py-2 text-xs text-gray-400 hover:bg-gray-700">Sin categoría</button>
+                      {categories.map(c => (
+                        <button key={c.id} onClick={() => assignCategory(c.id)}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 flex items-center gap-2 ${data.category_id === c.id ? 'bg-gray-700/50' : ''}`}>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                          <span style={{ color: c.color }}>{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div><span className="text-gray-500 text-xs">Pipeline</span><p className="text-gray-200">{stage?.label || '—'}</p></div>
                 <div>

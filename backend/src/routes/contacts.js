@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getChatLabels, setChatLabels } = require('../whatsapp');
+const { getChatLabels, setChatLabels, toWaId } = require('../whatsapp');
 
 function logActivity(db, contactId, userId, action, detail) {
   try {
@@ -382,12 +382,17 @@ router.patch('/:id', (req, res) => {
   }
 
   // Push category change to WhatsApp labels (fire-and-forget)
-  if ('category_id' in req.body && updated.wa_chat_id) {
+  if ('category_id' in req.body && (updated.wa_chat_id || updated.phone)) {
     setImmediate(async () => {
       try {
+        // @lid IDs are device-internal and not accepted by the labels API — use phone@c.us instead
+        let chatId = updated.wa_chat_id;
+        if (!chatId || chatId.endsWith('@lid')) {
+          chatId = toWaId(updated.phone);
+        }
         const allWaLinked = db.prepare('SELECT wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all()
           .map(r => r.wa_label_id);
-        const currentLabels = await getChatLabels(updated.wa_chat_id);
+        const currentLabels = await getChatLabels(chatId);
         const keepLabels = currentLabels
           .filter(l => !allWaLinked.includes(String(l.id)))
           .map(l => String(l.id));
@@ -395,7 +400,8 @@ router.patch('/:id', (req, res) => {
           const cat = db.prepare('SELECT wa_label_id FROM categories WHERE id = ?').get(req.body.category_id);
           if (cat?.wa_label_id) keepLabels.push(cat.wa_label_id);
         }
-        await setChatLabels(updated.wa_chat_id, keepLabels);
+        await setChatLabels(chatId, keepLabels);
+        console.log(`[contacts] WA label sync → ${chatId}: [${keepLabels.join(',')}]`);
       } catch (e) {
         console.error('[contacts] WA label sync error:', e.message);
       }

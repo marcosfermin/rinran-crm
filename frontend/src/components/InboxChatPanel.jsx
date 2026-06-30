@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, ExternalLink, File, Paperclip, Music, Download, Zap, CornerUpLeft, X, Mic, MicOff, MapPin, Check, CheckCircle, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Send, ExternalLink, File, Paperclip, Music, Download, Zap, CornerUpLeft, X, Mic, MicOff, MapPin, Check, CheckCircle, MessageSquare, Tag } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar } from './Avatar.jsx';
 
@@ -79,6 +79,8 @@ export default function InboxChatPanel({ contactId, onClose }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [templates, setTemplates] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [showCatMenu, setShowCatMenu] = useState(false);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [attachment, setAttachment] = useState(null);
@@ -109,6 +111,7 @@ export default function InboxChatPanel({ contactId, onClose }) {
     setReplyTo(null);
     load();
     apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
+    apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
     apiFetch(`/api/inbox/${contactId}/read`, { method: 'PATCH' }).catch(() => {});
     apiFetch('/api/messages/send-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(contactId) }) }).catch(() => {});
   }, [contactId]);
@@ -144,6 +147,16 @@ export default function InboxChatPanel({ contactId, onClose }) {
   async function downloadMedia(msgId) {
     const r = await apiFetch(`/api/messages/${msgId}/download-media`, { method: 'POST' });
     if (r?.ok) load();
+  }
+
+  async function assignCategory(categoryId) {
+    setShowCatMenu(false);
+    await apiFetch(`/api/contacts/${contactId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: categoryId || null }),
+    });
+    load();
   }
 
   function handleFileSelect(e) {
@@ -276,6 +289,30 @@ export default function InboxChatPanel({ contactId, onClose }) {
           <p className="text-sm font-semibold text-white truncate">{data?.name || '…'}</p>
           <p className="text-xs text-gray-500 truncate">{data?.phone}</p>
         </div>
+
+        {/* Category quick-assign */}
+        <div className="relative shrink-0">
+          <button onClick={() => setShowCatMenu(v => !v)}
+            title="Asignar categoría"
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-gray-800 transition-colors">
+            {data?.category_name
+              ? <span className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: (data.category_color || '#6b7280') + '33', color: data.category_color || '#6b7280' }}>{data.category_name}</span>
+              : <span className="flex items-center gap-1 text-xs text-gray-500"><Tag size={12} /> Categoría</span>}
+          </button>
+          {showCatMenu && (
+            <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-30 min-w-[140px] overflow-hidden">
+              <button onClick={() => assignCategory(null)} className="w-full text-left px-3 py-2 text-xs text-gray-400 hover:bg-gray-700">Sin categoría</button>
+              {categories.filter(c => !c.wa_label_id || parseInt(c.wa_label_id) > 3).map(cat => (
+                <button key={cat.id} onClick={() => assignCategory(cat.id)}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 flex items-center gap-2 ${data?.category_id === cat.id ? 'bg-gray-700/50' : ''}`}>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                  <span style={{ color: cat.color }}>{cat.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <button onClick={() => navigate(`/contacts/${contactId}`)}
           title="Ver perfil completo"
           className="p-2 text-gray-500 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">

@@ -36,8 +36,9 @@ services:
     environment:
       WAHA_API_KEY: ${WAHA_API_KEY:-rinran-waha-key-change-me}
       WHATSAPP_HOOK_URL: http://backend:4000/webhook
-      WHATSAPP_HOOK_EVENTS: message
+      WHATSAPP_HOOK_EVENTS: message,message.ack
       WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WHATSAPP_DOWNLOAD_MEDIA: TRUE
       WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME:-admin}
       WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD:-rinran-dashboard-2024}
     volumes:

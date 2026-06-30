@@ -287,6 +287,7 @@ export default function InboxPage() {
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className={`text-sm font-semibold truncate ${c.unread_count > 0 ? 'text-white' : 'text-gray-300'}`}>{c.name}</span>
+                  {c.category_name && <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: (c.category_color || '#6b7280') + '33', color: c.category_color || '#6b7280' }}>{c.category_name}</span>}
                   {c.sla_breach && <AlertTriangle size={11} className="text-red-400 shrink-0" />}
                 </div>
                 <span className={`text-xs shrink-0 ${c.unread_count > 0 ? 'text-green-400' : 'text-gray-600'}`}>{timeAgo(c.last_message_at)}</span>

@@ -296,23 +296,37 @@ router.post('/:id/download-media', async (req, res) => {
   if (!msg.wa_message_id) return res.status(400).json({ error: 'No WhatsApp message ID' });
   if (msg.media_url) return res.json({ media_url: msg.media_url, media_type: msg.media_type });
 
-  // Try to find media URL from webhook log payload
+  // Try to find media URL from webhook log payload.
+  // Payloads may be truncated (invalid JSON), so use LIKE first then try full parse,
+  // with a regex fallback to extract the URL from the raw string.
   let mediaUrl = null, mimetype = null, origFilename = null;
   try {
+    const waId = msg.wa_message_id;
+    const msgIdPart = waId.split('_').pop(); // e.g. 3AB38CB86EFA47D6F5F6
     const log = db.prepare(
-      "SELECT payload FROM webhook_log WHERE json_extract(payload,'$.payload.id') = ? LIMIT 1"
-    ).get(msg.wa_message_id);
+      "SELECT payload FROM webhook_log WHERE payload LIKE ? ORDER BY id DESC LIMIT 1"
+    ).get(`%${msgIdPart}%`);
     if (log) {
-      const p = JSON.parse(log.payload);
-      const m = (p?.payload || p?.data)?.media;
-      if (m?.url) { mediaUrl = m.url.replace('http://localhost:3000', 'http://waha:3000'); mimetype = m.mimetype; origFilename = m.filename; }
+      try {
+        const p = JSON.parse(log.payload);
+        const m = (p?.payload || p?.data)?.media;
+        if (m?.url) { mediaUrl = m.url.replace('http://localhost:3000', 'http://waha:3000'); mimetype = m.mimetype; origFilename = m.filename; }
+      } catch {
+        // Truncated JSON — extract url with regex
+        const urlMatch = log.payload.match(/"url"\s*:\s*"(http:\/\/[^"]+)"/);
+        const mimeMatch = log.payload.match(/"mimetype"\s*:\s*"([^"]+)"/);
+        if (urlMatch) { mediaUrl = urlMatch[1].replace('http://localhost:3000', 'http://waha:3000'); }
+        if (mimeMatch) { mimetype = mimeMatch[1]; }
+      }
     }
   } catch {}
 
   let result = null;
   if (mediaUrl) {
     try {
-      const resp = await require('axios').get(mediaUrl, { responseType: 'arraybuffer', timeout: 30000 });
+      const wahaHeaders = {};
+      if (process.env.OPENWA_API_KEY) wahaHeaders['X-Api-Key'] = process.env.OPENWA_API_KEY;
+      const resp = await require('axios').get(mediaUrl, { responseType: 'arraybuffer', timeout: 30000, headers: wahaHeaders });
       result = { data: Buffer.from(resp.data), contentType: mimetype || resp.headers['content-type'] || 'application/octet-stream' };
     } catch {}
   }

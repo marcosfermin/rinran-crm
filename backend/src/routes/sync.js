@@ -53,9 +53,11 @@ async function syncLabels(db) {
   const waLabels = await getLabels();
   if (!waLabels.length) return {};
 
-  // Upsert WA labels as CRM categories
+  // Upsert WA labels as CRM categories (skip system labels: Unread=1, Favorites=2, Groups=3)
+  const SYSTEM_LABEL_IDS = new Set(['1', '2', '3']);
   for (const label of waLabels) {
     const labelId = String(label.id);
+    if (SYSTEM_LABEL_IDS.has(labelId)) continue;
     // Strip Unicode control chars (e.g. LRM ‎) that WhatsApp adds to label names
     const labelName = label.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
     const existing = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
@@ -191,6 +193,21 @@ async function runSync() {
           const ts = msg.timestamp
             ? new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19)
             : null;
+
+          // For outbound messages, check if our broadcast already saved this message without a wa_message_id.
+          // If so, update the existing row instead of inserting a duplicate (which would lack media_url).
+          if (direction === 'outbound') {
+            const existing = db.prepare(
+              "SELECT id FROM messages WHERE contact_id = ? AND direction = 'outbound' AND content = ? AND wa_message_id IS NULL LIMIT 1"
+            ).get(contact.id, text);
+            if (existing) {
+              db.prepare('UPDATE messages SET wa_message_id = ?, status = ? WHERE id = ?')
+                .run(waId, 'sent', existing.id);
+              state.imported.messages++;
+              saved++;
+              continue;
+            }
+          }
 
           db.prepare(`
             INSERT INTO messages (contact_id, direction, content, wa_message_id, status, sent_at)

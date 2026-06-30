@@ -171,7 +171,12 @@ async function downloadMedia(waMessageId, sessionKey) {
 // Send a file via WAHA
 async function sendFile(chatId, fileObj) {
   const session = await getSession();
-  const res = await axios.post(`${base()}/api/sendFile`, {
+  const mime = fileObj.mimetype || '';
+  // Use type-specific endpoints so WhatsApp renders media natively (not as a document)
+  let endpoint = '/api/sendFile';
+  if (mime.startsWith('image/')) endpoint = '/api/sendImage';
+  else if (mime.startsWith('video/')) endpoint = '/api/sendVideo';
+  const res = await axios.post(`${base()}${endpoint}`, {
     chatId,
     file: { url: fileObj.url, filename: fileObj.filename, mimetype: fileObj.mimetype },
     session: session?.name || 'default',

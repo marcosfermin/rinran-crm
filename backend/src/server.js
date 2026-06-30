@@ -15,7 +15,7 @@ const auth = require('./middleware/auth');
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(morgan('dev'));
-app.use(express.json({ limit: '70mb' }));
+app.use(express.json({ limit: '1400mb' }));
 
 // Public routes
 app.use('/api/auth', require('./routes/auth'));

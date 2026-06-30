@@ -62,7 +62,14 @@ async function runSync() {
 
         const phone = await resolvePhone(chatId);
         const parsed = parsePhone(phone);
-        const name = chat.name || parsed.phone;
+
+        // Prefer chat.name; fall back to pushName from contacts API; last resort: phone
+        let name = chat.name || '';
+        if (!name) {
+          const info = await getContact(chatId);
+          name = info?.pushname || info?.name || '';
+        }
+        if (!name) name = parsed.phone;
 
         // Look up contact by real phone first, then fall back to wa_chat_id
         // (catches existing contacts that were stored with LID-based phone numbers)
@@ -86,8 +93,17 @@ async function runSync() {
           `).run(name, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, chatId);
           contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
           state.imported.contacts++;
-        } else if (!contact.wa_chat_id) {
-          db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
+        } else {
+          if (!contact.wa_chat_id) {
+            db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
+          }
+          // Update name if it still looks like a phone number and we have a better one
+          const nameIsPhone = /^\+[\d\s\(\)\-\.]+$/.test(contact.name.trim()) || contact.name.startsWith('WhatsApp ');
+          const betterName = name !== parsed.phone ? name : null;
+          if (nameIsPhone && betterName) {
+            db.prepare("UPDATE contacts SET name = ?, updated_at = datetime('now') WHERE id = ?").run(betterName, contact.id);
+            contact = { ...contact, name: betterName };
+          }
         }
 
         // Fetch profile picture (refresh on every sync so URLs don't expire)

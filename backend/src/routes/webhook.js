@@ -53,8 +53,15 @@ router.post('/', async (req, res) => {
       `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawFrom);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
       console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
-    } else if (!contact.wa_chat_id) {
-      db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(rawFrom, contact.id);
+    } else {
+      if (!contact.wa_chat_id) {
+        db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(rawFrom, contact.id);
+      }
+      // Upgrade name if it still looks like a phone number and pushName is available
+      const nameIsPhone = /^\+[\d\s\(\)\-\.]+$/.test(contact.name.trim()) || contact.name.startsWith('WhatsApp ');
+      if (nameIsPhone && senderName && !senderName.startsWith('WhatsApp ')) {
+        db.prepare("UPDATE contacts SET name = ?, updated_at = datetime('now') WHERE id = ?").run(senderName, contact.id);
+      }
     }
 
     if (wa_message_id) {

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { fromWaId, sendText } = require('../whatsapp');
+const { fromWaId, sendText, resolveLid } = require('../whatsapp');
 const { broadcast: sseEmit } = require('./sse');
 const { fireOutboundWebhooks } = require('../outboundWebhooks');
 
@@ -72,8 +72,14 @@ router.post('/', async (req, res) => {
       text = MEDIA_LABELS[msgData.type] || '[Archivo]';
     }
 
-    const phone = fromWaId(senderRaw);
-    const parsed = parsePhone(phone);
+    // LIDs (@lid) are device-internal IDs, not real phone numbers.
+    // Resolve them to the actual phone via WAHA before doing any DB lookup.
+    let rawPhone = fromWaId(senderRaw);
+    if (senderRaw.endsWith('@lid')) {
+      const resolved = await resolveLid(senderRaw);
+      if (resolved) rawPhone = resolved;
+    }
+    const parsed = parsePhone(rawPhone);
     const wa_message_id = msgData.id || null;
     const senderName = msgData.notifyName || msgData.pushName
       || msgData._data?.notifyName

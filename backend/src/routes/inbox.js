@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   const { search, conv_status, assigned_to, page = 1, limit = 40 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  let where = ['c.is_deleted != 1'];
+  let where = ['c.is_deleted != 1', 'EXISTS (SELECT 1 FROM messages WHERE contact_id = c.id)'];
   const params = [];
 
   // Role-based filtering

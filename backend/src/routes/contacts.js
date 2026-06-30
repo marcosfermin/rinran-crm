@@ -208,7 +208,16 @@ router.get('/:id', (req, res) => {
     ORDER BY d.sort_order, d.id
   `).all(req.params.id);
 
-  res.json({ ...contact, messages, activity, tags, customFields });
+  const broadcasts = db.prepare(`
+    SELECT b.id, b.name, b.message, b.created_at, br.status as recipient_status, br.sent_at as recipient_sent_at
+    FROM broadcast_recipients br
+    JOIN broadcasts b ON br.broadcast_id = b.id
+    WHERE br.contact_id = ?
+    ORDER BY b.created_at DESC
+    LIMIT 20
+  `).all(req.params.id);
+
+  res.json({ ...contact, messages, activity, tags, customFields, broadcasts });
 });
 
 // POST /contacts
@@ -348,6 +357,19 @@ router.patch('/:id', (req, res) => {
   }
   if (conv_status !== undefined && conv_status !== old.conv_status) {
     logActivity(db, old.id, req.user.id, 'conv_status_changed', conv_status);
+  }
+
+  // Apply assignment rule when category changes and contact has no agent
+  if (category_id !== undefined && category_id && !old.assigned_to && !('assigned_to' in req.body)) {
+    setImmediate(() => {
+      try {
+        const rule = db.prepare("SELECT * FROM assignment_rules WHERE is_active = 1 AND category_id = ? ORDER BY sort_order, id LIMIT 1").get(category_id);
+        if (rule) {
+          db.prepare("UPDATE contacts SET assigned_to = ? WHERE id = ?").run(rule.agent_id, old.id);
+          logActivity(db, old.id, null, 'assigned', `Auto-asignado por regla de categoría`);
+        }
+      } catch {}
+    });
   }
 
   // Push category change to WhatsApp labels (fire-and-forget)

@@ -100,6 +100,8 @@ export default function InboxPage() {
 
   const { user, token } = useAuth();
   const [conversations, setConversations] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [convStatusFilter, setConvStatusFilter] = useState('open');
   const [agentFilter, setAgentFilter] = useState('');
@@ -111,13 +113,28 @@ export default function InboxPage() {
   const [assignMenuId, setAssignMenuId] = useState(null);
   const { status: syncStatus, startSync } = useSyncStatus();
 
-  const load = useCallback(() => {
-    const params = new URLSearchParams();
+  const PAGE_SIZE = 40;
+  const loadPage = useCallback((p, append = false) => {
+    const params = new URLSearchParams({ page: p, limit: PAGE_SIZE });
     if (search) params.set('search', search);
     if (convStatusFilter) params.set('conv_status', convStatusFilter);
     if (agentFilter) params.set('assigned_to', agentFilter);
-    apiFetch(`/api/inbox?${params}`).then(r => r?.json()).then(data => data && setConversations(data)).catch(() => {});
+    apiFetch(`/api/inbox?${params}`).then(r => r?.json()).then(data => {
+      if (!data) return;
+      if (append) {
+        setConversations(prev => {
+          const ids = new Set(prev.map(c => c.id));
+          return [...prev, ...(data.conversations ?? []).filter(c => !ids.has(c.id))];
+        });
+      } else {
+        setConversations(data.conversations ?? []);
+        setPage(1);
+      }
+      setTotal(data.total ?? 0);
+    }).catch(() => {});
   }, [search, convStatusFilter, agentFilter]);
+
+  const load = useCallback(() => loadPage(1, false), [loadPage]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -136,7 +153,13 @@ export default function InboxPage() {
   }, [user]);
 
   const wasSyncing = useRef(false);
-  useEffect(() => { if (wasSyncing.current && !syncStatus.running) load(); wasSyncing.current = syncStatus.running; }, [syncStatus.running]);
+  useEffect(() => { if (wasSyncing.current && !syncStatus.running) load(); wasSyncing.current = syncStatus.running; }, [syncStatus.running, load]);
+
+  async function markUnread(contactId, e) {
+    e.stopPropagation();
+    await apiFetch(`/api/inbox/${contactId}/unread`, { method: 'PATCH' });
+    setConversations(prev => prev.map(c => c.id === contactId ? { ...c, unread_count: (c.unread_count || 0) + 1 } : c));
+  }
 
   async function updateStatus(contactId, conv_status, e) {
     e.stopPropagation();
@@ -236,7 +259,6 @@ export default function InboxPage() {
             <p className="text-xs mt-1 text-gray-700">Presiona "Sync" para importar el historial</p>
           </div>
         )}
-
         {conversations.map(c => (
           <div key={c.id}
             onClick={() => navigate(`/inbox/${c.id}`)}
@@ -273,6 +295,13 @@ export default function InboxPage() {
                 className="p-1.5 text-gray-600 hover:text-green-400 transition-colors rounded-lg hover:bg-gray-800">
                 <Send size={13} />
               </button>
+              {c.unread_count === 0 && (
+                <button onClick={e => markUnread(c.id, e)}
+                  title="Marcar como no leído"
+                  className="p-1.5 text-gray-700 hover:text-yellow-400 transition-colors rounded-lg hover:bg-gray-800">
+                  <MessageSquare size={13} />
+                </button>
+              )}
 
               <div className="relative">
                 <button onClick={e => { e.stopPropagation(); setStatusMenuId(statusMenuId === c.id ? null : c.id); setAssignMenuId(null); }}
@@ -318,6 +347,13 @@ export default function InboxPage() {
             </div>
           </div>
         ))}
+        {conversations.length < total && (
+          <button
+            onClick={() => { const next = page + 1; setPage(next); loadPage(next, true); }}
+            className="w-full py-3 text-xs text-gray-500 hover:text-white hover:bg-gray-800/50 transition-colors">
+            Cargar más ({conversations.length} de {total})
+          </button>
+        )}
       </div>
     </div>
   );

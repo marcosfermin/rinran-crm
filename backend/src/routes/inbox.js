@@ -5,7 +5,8 @@ const { getDb } = require('../db');
 // GET /inbox — conversations sorted by last message, with unread count + SLA flag
 router.get('/', (req, res) => {
   const db = getDb();
-  const { search, conv_status, assigned_to } = req.query;
+  const { search, conv_status, assigned_to, page = 1, limit = 40 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
 
   let where = ['1=1'];
   const params = [];
@@ -76,7 +77,12 @@ router.get('/', (req, res) => {
     ) last_msg ON last_msg.contact_id = c.id AND last_msg.rn = 1
     WHERE ${where.join(' AND ')}
     ORDER BY COALESCE(last_msg.sent_at, c.created_at) DESC
-  `).all(...params);
+    LIMIT ? OFFSET ?
+  `).all(...params, parseInt(limit), offset);
+
+  const total = db.prepare(`
+    SELECT COUNT(*) as n FROM contacts c WHERE ${where.join(' AND ')}
+  `).get(...params).n;
 
   // Compute SLA breach: last inbound has no outbound response and is older than slaHours
   const now = Date.now();
@@ -91,7 +97,7 @@ router.get('/', (req, res) => {
     return { ...c, sla_breach };
   });
 
-  res.json(result);
+  res.json({ conversations: result, total, page: parseInt(page), limit: parseInt(limit) });
 });
 
 // PATCH /inbox/:contact_id/read — mark all inbound messages as read
@@ -101,6 +107,18 @@ router.patch('/:contact_id/read', (req, res) => {
     UPDATE messages SET status = 'read'
     WHERE contact_id = ? AND direction = 'inbound' AND status = 'received'
   `).run(req.params.contact_id);
+  res.json({ ok: true });
+});
+
+// PATCH /inbox/:contact_id/unread — mark last inbound message as unread
+router.patch('/:contact_id/unread', (req, res) => {
+  const db = getDb();
+  const last = db.prepare(
+    "SELECT id FROM messages WHERE contact_id = ? AND direction = 'inbound' ORDER BY sent_at DESC LIMIT 1"
+  ).get(req.params.contact_id);
+  if (last) {
+    db.prepare("UPDATE messages SET status = 'received' WHERE id = ?").run(last.id);
+  }
   res.json({ ok: true });
 });
 

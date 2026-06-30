@@ -4,11 +4,6 @@ import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File,
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
-const STAGES = [
-  { key: 'nuevo', label: 'Nuevo' }, { key: 'contactado', label: 'Contactado' },
-  { key: 'en_progreso', label: 'En progreso' }, { key: 'propuesta', label: 'Propuesta' },
-  { key: 'ganado', label: 'Ganado' }, { key: 'perdido', label: 'Perdido' },
-];
 
 const CONV_STATUS = [
   { key: 'open', label: 'Abierto', icon: MessageSquare, color: 'text-green-400' },
@@ -80,7 +75,13 @@ function MessageBubble({ msg, onDownload, onReply }) {
             <CornerUpLeft size={10} /> Citar
           </button>
           <p className={`text-[11px] text-right ${isOut ? 'text-green-200' : 'text-gray-500'}`}>
-            {time}{isOut && msg.status === 'failed' ? ' ✗' : isOut ? ' ✓' : ''}
+            {time}
+            {isOut && (
+              msg.status === 'failed' ? <span className="text-red-300 ml-0.5">✗</span> :
+              msg.status === 'read' ? <span className="text-blue-300 ml-0.5">✓✓</span> :
+              msg.status === 'delivered' ? <span className="opacity-60 ml-0.5">✓✓</span> :
+              <span className="opacity-60 ml-0.5">✓</span>
+            )}
           </p>
         </div>
       </div>
@@ -114,6 +115,7 @@ export default function ContactDetail() {
   const [reminderForm, setReminderForm] = useState({ title: '', note: '', due_at: '' });
   const [showReminderAdd, setShowReminderAdd] = useState(false);
   const [allTags, setAllTags] = useState([]);
+  const [stages, setStages] = useState([]);
   const [customFields, setCustomFields] = useState([]);
   const [customFieldEdits, setCustomFieldEdits] = useState({});
   const [savingFields, setSavingFields] = useState(false);
@@ -176,6 +178,7 @@ export default function ContactDetail() {
     apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
     apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
     apiFetch('/api/tags').then(r => r?.json()).then(d => d && setAllTags(Array.isArray(d) ? d : []));
+    apiFetch('/api/pipeline-stages').then(r => r?.json()).then(d => d && setStages(Array.isArray(d) ? d : []));
     apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
     apiFetch('/api/messages/send-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id) }) }).catch(() => {});
   }, [id]);
@@ -387,7 +390,7 @@ export default function ContactDetail() {
   if (!data) return <div className="flex items-center justify-center h-full text-gray-600"><div className="animate-pulse">Cargando...</div></div>;
 
   const cat = categories.find(c => c.id === data.category_id);
-  const stage = STAGES.find(s => s.key === (data.pipeline_stage || 'nuevo'));
+  const stage = stages.find(s => s.key === (data.pipeline_stage || stages[0]?.key));
   const convStatus = CONV_STATUS.find(s => s.key === (data.conv_status || 'open')) || CONV_STATUS[0];
   const ConvIcon = convStatus.icon;
 
@@ -478,7 +481,7 @@ export default function ContactDetail() {
       {showInfo && (
         <div className="bg-gray-900/80 border-b border-gray-800 px-4 py-3 space-y-3 shrink-0">
           <div className="flex gap-3 border-b border-gray-800 -mx-4 px-4 overflow-x-auto">
-            {[['chat', MessageSquare, 'Info'], ['notes', StickyNote, 'Notas'], ['reminders', Bell, 'Recordatorios'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
+            {[['chat', MessageSquare, 'Info'], ['notes', StickyNote, 'Notas'], ['reminders', Bell, 'Recordatorios'], ['broadcasts', Send, 'Broadcasts'], ['activity', Activity, 'Actividad']].map(([tab, Icon, label]) => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`flex items-center gap-1.5 pb-2 px-1 text-xs font-medium border-b-2 transition-colors shrink-0 ${activeTab === tab ? 'border-green-500 text-green-400' : 'border-transparent text-gray-500 hover:text-white'}`}>
                 <Icon size={12} /> {label}
@@ -565,6 +568,27 @@ export default function ContactDetail() {
                 })}
               </div>
             </div>
+          ) : activeTab === 'broadcasts' ? (
+            <div className="max-h-48 overflow-y-auto space-y-2">
+              {!(data.broadcasts?.length)
+                ? <p className="text-xs text-gray-600">Este contacto no ha recibido broadcasts</p>
+                : data.broadcasts.map(b => {
+                  const statusColors = { sent: 'text-gray-400', delivered: 'text-blue-400', read: 'text-green-400', failed: 'text-red-400', pending: 'text-yellow-400' };
+                  const statusLabels = { sent: 'Enviado', delivered: 'Entregado', read: 'Leído', failed: 'Fallido', pending: 'Pendiente' };
+                  return (
+                    <div key={b.id} className="bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2 flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-white truncate">{b.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{b.message?.slice(0, 80)}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-[10px] font-medium ${statusColors[b.recipient_status] || 'text-gray-500'}`}>{statusLabels[b.recipient_status] || b.recipient_status}</p>
+                        <p className="text-[10px] text-gray-600">{b.created_at ? new Date(b.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('es') : ''}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
           ) : editing ? (
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
@@ -584,7 +608,7 @@ export default function ContactDetail() {
                 <label className="text-xs text-gray-500 mb-1 block">Pipeline</label>
                 <select value={editForm.pipeline_stage} onChange={e => setEditForm(f => ({ ...f, pipeline_stage: e.target.value }))}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
-                  {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  {stages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               </div>
               {team.length > 0 && (

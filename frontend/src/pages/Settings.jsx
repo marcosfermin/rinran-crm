@@ -39,6 +39,11 @@ export default function Settings() {
   const [newRule, setNewRule] = useState({ name: '', category_id: '', agent_id: '' });
   const [ruleMsg, setRuleMsg] = useState('');
 
+  // Pipeline stages state
+  const [pipelineStages, setPipelineStages] = useState([]);
+  const [newStage, setNewStage] = useState({ key: '', label: '', color: '#6b7280' });
+  const [stageMsg, setStageMsg] = useState({ text: '', ok: false });
+
   // Phonebook import
   const [phonebookImporting, setPhonebookImporting] = useState(false);
   const [phonebookResult, setPhonebookResult] = useState(null);
@@ -77,6 +82,7 @@ export default function Settings() {
       apiFetch('/api/settings/smtp').then(r => r?.json()).then(d => d && setSmtpForm(prev => ({ ...prev, ...d })));
       apiFetch('/api/settings/outbound-webhooks').then(r => r?.json()).then(d => d && setOutboundHooks(Array.isArray(d) ? d : []));
       apiFetch('/api/settings/api-keys').then(r => r?.json()).then(d => d && setApiKeys(Array.isArray(d) ? d : []));
+      apiFetch('/api/pipeline-stages').then(r => r?.json()).then(d => d && setPipelineStages(Array.isArray(d) ? d : []));
     }
   }, [isAdmin]);
 
@@ -154,6 +160,22 @@ export default function Settings() {
     if (r?.ok) { setTwoFaEnabled(false); setShowDisable(false); setDisablePwd(''); setTwoFaMsg({ text: '2FA desactivado', ok: true }); }
     else setTwoFaMsg({ text: d?.error || 'Error', ok: false });
     setTimeout(() => setTwoFaMsg({ text: '', ok: false }), 4000);
+  }
+
+  // Pipeline stages handlers
+  async function addStage() {
+    if (!newStage.key.trim() || !newStage.label.trim()) return;
+    const r = await apiFetch('/api/pipeline-stages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newStage) });
+    const d = await r?.json();
+    if (r?.ok) { setPipelineStages(prev => [...prev, d]); setNewStage({ key: '', label: '', color: '#6b7280' }); setStageMsg({ text: 'Etapa agregada', ok: true }); }
+    else setStageMsg({ text: d?.error || 'Error', ok: false });
+    setTimeout(() => setStageMsg({ text: '', ok: false }), 3000);
+  }
+
+  async function deleteStage(id) {
+    const r = await apiFetch(`/api/pipeline-stages/${id}`, { method: 'DELETE' });
+    if (r?.ok) { setPipelineStages(prev => prev.filter(s => s.id !== id)); }
+    else { const d = await r?.json(); setStageMsg({ text: d?.error || 'Error al eliminar', ok: false }); setTimeout(() => setStageMsg({ text: '', ok: false }), 4000); }
   }
 
   // Assignment rules handlers
@@ -387,6 +409,45 @@ export default function Settings() {
                 {phonebookResult.error || `${phonebookResult.imported} importados, ${phonebookResult.skipped} omitidos`}
               </span>
             )}
+          </div>
+        </section>
+      )}
+
+      {/* Pipeline stages (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
+            <BookOpen size={14} /> Etapas del Pipeline
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">Definí las columnas del Pipeline. Arrastrá contactos entre columnas en la vista Pipeline.</p>
+          <div className="space-y-2 mb-4">
+            {pipelineStages.map(s => (
+              <div key={s.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 border border-gray-700 bg-gray-800">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm text-white">{s.label}</span>
+                  <span className="text-xs text-gray-600 ml-2 font-mono">{s.key}</span>
+                </div>
+                <button onClick={() => deleteStage(s.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {stageMsg.text && <p className={`text-sm mb-3 ${stageMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{stageMsg.text}</p>}
+          <div className="grid grid-cols-12 gap-2">
+            <input value={newStage.label} onChange={e => setNewStage(n => ({ ...n, label: e.target.value, key: e.target.value.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') }))}
+              placeholder="Nombre (ej: Negociación)"
+              className="col-span-5 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            <input value={newStage.key} onChange={e => setNewStage(n => ({ ...n, key: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+              placeholder="Clave (ej: negociacion)"
+              className="col-span-4 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-green-500" />
+            <input type="color" value={newStage.color} onChange={e => setNewStage(n => ({ ...n, color: e.target.value }))}
+              className="col-span-1 h-10 w-full rounded-lg border border-gray-700 bg-gray-800 cursor-pointer" />
+            <button onClick={addStage} disabled={!newStage.key.trim() || !newStage.label.trim()}
+              className="col-span-2 flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+              <Plus size={14} /> Agregar
+            </button>
           </div>
         </section>
       )}

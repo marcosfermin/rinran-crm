@@ -71,7 +71,7 @@ function useRealtimeUnread(token, onNewMessage, onReminder) {
     const fetchCount = () =>
       apiFetch('/api/inbox').then(r => r?.json()).then(data => {
         if (!data) return;
-        const newCount = data.reduce((s, c) => s + (c.unread_count || 0), 0);
+        const newCount = (data.conversations ?? data).reduce((s, c) => s + (c.unread_count || 0), 0);
         if (initialized.current && newCount > prevCount.current) {
           playNotificationSound();
           if (document.hidden) sendBrowserNotification('Nuevo mensaje — Rinran CRM', `${newCount} mensaje${newCount > 1 ? 's' : ''} sin leer`);

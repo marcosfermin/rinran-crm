@@ -254,6 +254,32 @@ function initSchema() {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS pipeline_stages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#6b7280',
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // Seed default stages if table is empty
+  const stageCount = db.prepare('SELECT COUNT(*) as n FROM pipeline_stages').get().n;
+  if (stageCount === 0) {
+    const defaults = [
+      ['nuevo',       'Nuevo',       '#6b7280', 0],
+      ['contactado',  'Contactado',  '#3b82f6', 1],
+      ['en_progreso', 'En progreso', '#f59e0b', 2],
+      ['propuesta',   'Propuesta',   '#8b5cf6', 3],
+      ['ganado',      'Ganado',      '#10b981', 4],
+      ['perdido',     'Perdido',     '#ef4444', 5],
+    ];
+    for (const [key, label, color, sort_order] of defaults) {
+      db.prepare('INSERT OR IGNORE INTO pipeline_stages (key, label, color, sort_order) VALUES (?, ?, ?, ?)').run(key, label, color, sort_order);
+    }
+  }
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,

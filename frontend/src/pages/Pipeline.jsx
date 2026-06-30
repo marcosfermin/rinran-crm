@@ -4,15 +4,6 @@ import { MessageCircle, Clock, UserCheck } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar } from '../components/Avatar.jsx';
 
-const STAGES = [
-  { key: 'nuevo',        label: 'Nuevo',        color: 'bg-gray-500',   border: 'border-gray-500' },
-  { key: 'contactado',   label: 'Contactado',   color: 'bg-blue-500',   border: 'border-blue-500' },
-  { key: 'en_progreso',  label: 'En progreso',  color: 'bg-yellow-500', border: 'border-yellow-500' },
-  { key: 'propuesta',    label: 'Propuesta',    color: 'bg-purple-500', border: 'border-purple-500' },
-  { key: 'ganado',       label: 'Ganado',       color: 'bg-green-500',  border: 'border-green-500' },
-  { key: 'perdido',      label: 'Perdido',      color: 'bg-red-500',    border: 'border-red-500' },
-];
-
 const CONV_STATUS_COLORS = { open: 'text-green-400', pending: 'text-yellow-400', closed: 'text-gray-500' };
 const CONV_STATUS_LABELS = { open: 'Abierto', pending: 'Pendiente', closed: 'Cerrado' };
 
@@ -28,15 +19,21 @@ function timeAgo(dateStr) {
 export default function Pipeline() {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState([]);
+  const [stages, setStages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const dragNode = useRef(null);
 
   const load = useCallback(() => {
-    apiFetch('/api/contacts?limit=500&status=active')
-      .then(r => r?.json())
-      .then(d => { if (d) { setContacts(d.contacts ?? []); setLoading(false); } });
+    Promise.all([
+      apiFetch('/api/contacts?limit=500&status=active').then(r => r?.json()),
+      apiFetch('/api/pipeline-stages').then(r => r?.json()),
+    ]).then(([contactsData, stagesData]) => {
+      if (contactsData) setContacts(contactsData.contacts ?? []);
+      if (stagesData) setStages(stagesData);
+      setLoading(false);
+    });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -50,7 +47,6 @@ export default function Pipeline() {
     });
   }
 
-  // Drag handlers
   function onDragStart(e, contactId) {
     setDragId(contactId);
     dragNode.current = e.currentTarget;
@@ -73,15 +69,14 @@ export default function Pipeline() {
 
   function onDrop(e, stageKey) {
     e.preventDefault();
-    if (dragId && stageKey) {
-      moveStage(dragId, stageKey);
-    }
+    if (dragId && stageKey) moveStage(dragId, stageKey);
     setDragOver(null);
   }
 
-  const grouped = STAGES.map(s => ({
+  const firstStageKey = stages[0]?.key || 'nuevo';
+  const grouped = stages.map(s => ({
     ...s,
-    contacts: contacts.filter(c => (c.pipeline_stage || 'nuevo') === s.key),
+    contacts: contacts.filter(c => (c.pipeline_stage || firstStageKey) === s.key),
   }));
 
   return (
@@ -92,11 +87,11 @@ export default function Pipeline() {
           <span className="text-xs text-gray-500">{contacts.length} contactos activos</span>
         </div>
         <div className="flex gap-3 mt-3 overflow-x-auto pb-1">
-          {STAGES.map(s => {
-            const count = contacts.filter(c => (c.pipeline_stage || 'nuevo') === s.key).length;
+          {stages.map(s => {
+            const count = contacts.filter(c => (c.pipeline_stage || firstStageKey) === s.key).length;
             return (
               <div key={s.key} className="flex items-center gap-1.5 shrink-0">
-                <div className={`w-2 h-2 rounded-full ${s.color}`} />
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                 <span className="text-xs text-gray-400">{s.label}</span>
                 <span className="text-xs font-bold text-white bg-gray-800 px-1.5 rounded">{count}</span>
               </div>
@@ -113,21 +108,20 @@ export default function Pipeline() {
             {grouped.map(stage => (
               <div
                 key={stage.key}
-                className={`w-64 flex flex-col bg-gray-900 border rounded-xl overflow-hidden shrink-0 transition-colors ${
-                  dragOver === stage.key ? `${stage.border} bg-gray-800/50` : 'border-gray-800'
+                className={`w-64 flex flex-col bg-gray-900 rounded-xl overflow-hidden shrink-0 transition-colors border-2 ${
+                  dragOver === stage.key ? 'bg-gray-800/50' : 'border-gray-800'
                 }`}
+                style={dragOver === stage.key ? { borderColor: stage.color } : {}}
                 onDragOver={e => onDragOver(e, stage.key)}
                 onDragLeave={() => setDragOver(null)}
                 onDrop={e => onDrop(e, stage.key)}
               >
-                {/* Column header */}
                 <div className="px-3 py-2.5 border-b border-gray-800 flex items-center gap-2">
-                  <div className={`w-2.5 h-2.5 rounded-full ${stage.color}`} />
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stage.color }} />
                   <span className="text-xs font-semibold text-gray-300 flex-1">{stage.label}</span>
                   <span className="text-xs font-bold text-white bg-gray-800 px-1.5 rounded">{stage.contacts.length}</span>
                 </div>
 
-                {/* Cards */}
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                   {stage.contacts.map(c => (
                     <div
@@ -152,7 +146,6 @@ export default function Pipeline() {
                         </button>
                       </div>
 
-                      {/* Category & conv status row */}
                       <div className="flex flex-wrap gap-1 mb-1.5">
                         {c.category_name && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
@@ -167,7 +160,6 @@ export default function Pipeline() {
                         )}
                       </div>
 
-                      {/* Agent & last message time */}
                       <div className="flex items-center justify-between gap-1">
                         {c.assigned_name ? (
                           <span className="text-[10px] text-blue-400 flex items-center gap-0.5 truncate">
@@ -183,7 +175,8 @@ export default function Pipeline() {
                     </div>
                   ))}
                   {stage.contacts.length === 0 && (
-                    <div className={`text-[11px] text-gray-700 text-center py-8 border-2 border-dashed rounded-lg transition-colors ${dragOver === stage.key ? 'border-gray-500 text-gray-500' : 'border-gray-800'}`}>
+                    <div className={`text-[11px] text-gray-700 text-center py-8 border-2 border-dashed rounded-lg transition-colors ${dragOver === stage.key ? 'text-gray-500' : 'border-gray-800'}`}
+                      style={dragOver === stage.key ? { borderColor: stage.color } : {}}>
                       {dragOver === stage.key ? 'Soltar aquí' : 'Sin contactos'}
                     </div>
                   )}

@@ -4,6 +4,7 @@ const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
 const { fromWaId, sendText } = require('../whatsapp');
 const { broadcast: sseEmit } = require('./sse');
+const { fireOutboundWebhooks } = require('../outboundWebhooks');
 
 router.get('/', (req, res) => {
   res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
@@ -24,7 +25,7 @@ router.post('/', async (req, res) => {
     db.prepare('DELETE FROM webhook_log WHERE id NOT IN (SELECT id FROM webhook_log ORDER BY id DESC LIMIT 500)').run();
   } catch {}
 
-  // Handle delivery/read ACKs for broadcast tracking
+  // Handle delivery/read ACKs
   if (event === 'message.ack' || event === 'message:ack') {
     try {
       const db = getDb();
@@ -32,9 +33,13 @@ router.post('/', async (req, res) => {
       const waId = ackData.id || ackData.msgId || ackData._serialized;
       const ack = ackData.ack;
       if (waId && ack >= 2) {
+        // Update broadcast tracking
         db.prepare("UPDATE broadcast_recipients SET status = 'delivered' WHERE wa_message_id = ? AND status = 'sent'").run(waId);
+        // Update individual message status
+        db.prepare("UPDATE messages SET status = 'delivered' WHERE wa_message_id = ? AND status = 'sent'").run(waId);
         if (ack >= 3) {
           db.prepare("UPDATE broadcast_recipients SET status = 'read' WHERE wa_message_id = ?").run(waId);
+          db.prepare("UPDATE messages SET status = 'read' WHERE wa_message_id = ?").run(waId);
         }
       }
     } catch {}
@@ -81,13 +86,11 @@ router.post('/', async (req, res) => {
     if (!contact) {
       const groupNote = isGroup ? `Participante del grupo ${rawFrom.replace('@g.us', '')}` : null;
 
-      // Auto-assignment: find matching rule (by category_id=null means any, or specific category later)
+      // Auto-assignment: fallback to no-category rules (new contacts have no category yet)
       let autoAssignAgent = null;
       try {
-        const rules = db.prepare("SELECT * FROM assignment_rules WHERE is_active = 1 ORDER BY sort_order, id").all();
-        // First matching rule with no category constraint
-        const rule = rules.find(r => !r.category_id);
-        if (rule) autoAssignAgent = rule.agent_id;
+        const rules = db.prepare("SELECT * FROM assignment_rules WHERE is_active = 1 AND category_id IS NULL ORDER BY sort_order, id LIMIT 1").all();
+        if (rules.length > 0) autoAssignAgent = rules[0].agent_id;
       } catch {}
 
       const r = db.prepare(`
@@ -127,7 +130,7 @@ router.post('/', async (req, res) => {
     // Emit SSE to connected browser clients
     try { sseEmit('message', { contact_id: contact.id, phone: contact.phone, name: contact.name }); } catch {}
 
-    // Fire outbound webhooks
+    // Fire outbound webhooks for inbound message
     setImmediate(() => fireOutboundWebhooks(db, 'message.inbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: text }));
 
     // Auto-reply rules
@@ -138,24 +141,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-async function fireOutboundWebhooks(db, eventType, payload) {
-  try {
-    const hooks = db.prepare("SELECT * FROM outbound_webhooks WHERE is_active = 1 AND (events = ? OR events LIKE ? OR events LIKE ? OR events LIKE ?)")
-      .all(eventType, `${eventType},%`, `%,${eventType}`, `%,${eventType},%`);
-    const axios = require('axios');
-    const crypto = require('crypto');
-    for (const hook of hooks) {
-      try {
-        const body = JSON.stringify({ event: eventType, timestamp: new Date().toISOString(), data: payload });
-        const headers = { 'Content-Type': 'application/json' };
-        if (hook.secret) {
-          headers['X-Rinran-Signature'] = 'sha256=' + crypto.createHmac('sha256', hook.secret).update(body).digest('hex');
-        }
-        await axios.post(hook.url, JSON.parse(body), { headers, timeout: 10000 });
-      } catch {}
-    }
-  } catch {}
-}
 
 function isWithinHours(rangeStr) {
   const parts = rangeStr?.split('-');

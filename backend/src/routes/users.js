@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../db');
+const { sendWelcomeEmail } = require('../emailService');
 
 router.get('/', (req, res) => {
   const users = getDb().prepare("SELECT id, email, name, role, created_at FROM users ORDER BY name").all();
@@ -17,6 +18,7 @@ router.post('/', (req, res) => {
     const hash = bcrypt.hashSync(password, 10);
     const r = db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)').run(email, hash, name, role);
     const u = db.prepare("SELECT id, email, name, role, created_at FROM users WHERE id = ?").get(r.lastInsertRowid);
+    setImmediate(() => sendWelcomeEmail(email, name, password).catch(() => {}));
     res.status(201).json({ ...u, role: u.role || 'admin' });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Email already exists' });

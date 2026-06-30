@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { getDb } = require('../db');
 const { sendText, sendFile, sendVoice, sendLocation, sendSeen, sendTyping, downloadMedia, toWaId } = require('../whatsapp');
+const { fireOutboundWebhooks } = require('../outboundWebhooks');
 
 const uploadsDir = path.join(__dirname, '../../../data/uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -56,6 +57,8 @@ router.post('/send', async (req, res) => {
   // Auto-open conv_status when we send a message
   db.prepare("UPDATE contacts SET conv_status = 'open', updated_at = datetime('now') WHERE id = ? AND conv_status = 'closed'").run(contact_id);
 
+  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message }));
+
   res.json({ id: row.lastInsertRowid, status, wa_message_id });
 });
 
@@ -98,6 +101,8 @@ router.post('/send-file', async (req, res) => {
     VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?)
   `).run(contact_id, content, wa_message_id, status, localUrl, mimetype, filename);
 
+  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: content, media_url: localUrl, media_type: mimetype }));
+
   res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
 });
 
@@ -126,6 +131,7 @@ router.post('/send-voice', async (req, res) => {
 
   const row = db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename) VALUES (?, 'outbound', '[Audio]', ?, ?, ?, ?, ?)`)
     .run(contact_id, wa_message_id, status, localUrl, mimetype, filename);
+  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: '[Audio]', media_url: localUrl }));
   res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
 });
 
@@ -147,6 +153,7 @@ router.post('/send-location', async (req, res) => {
 
   const row = db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, 'outbound', ?, ?, ?)`)
     .run(contact_id, `📍 ${label}`, wa_message_id, status);
+  setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: `📍 ${label}` }));
   res.json({ id: row.lastInsertRowid, status, wa_message_id });
 });
 

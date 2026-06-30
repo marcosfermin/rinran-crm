@@ -4,8 +4,6 @@ import { Plus, Search, Trash2, ChevronLeft, ChevronRight, MessageCircle, Upload,
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
-const STAGES = ['nuevo', 'contactado', 'en_progreso', 'propuesta', 'ganado', 'perdido'];
-const STAGE_LABELS = { nuevo: 'Nuevo', contactado: 'Contactado', en_progreso: 'En progreso', propuesta: 'Propuesta', ganado: 'Ganado', perdido: 'Perdido' };
 const CONV_STATUS_LABELS = { open: 'Abierto', pending: 'Pendiente', closed: 'Cerrado' };
 
 export default function Contacts() {
@@ -34,6 +32,7 @@ export default function Contacts() {
   const [duplicates, setDuplicates] = useState([]);
   const [tagFilter, setTagFilter] = useState('');
   const [allTags, setAllTags] = useState([]);
+  const [stages, setStages] = useState([]);
   const csvInputRef = useRef(null);
   const limit = 20;
 
@@ -59,6 +58,7 @@ export default function Contacts() {
     apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
     apiFetch('/api/saved-filters').then(r => r?.json()).then(d => d && setSavedFilters(Array.isArray(d) ? d : []));
     apiFetch('/api/tags').then(r => r?.json()).then(d => d && setAllTags(Array.isArray(d) ? d : []));
+    apiFetch('/api/pipeline-stages').then(r => r?.json()).then(d => d && setStages(Array.isArray(d) ? d : []));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -218,7 +218,7 @@ export default function Contacts() {
           <select value={stageFilter} onChange={e => { setStageFilter(e.target.value); setPage(1); }}
             className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-400 focus:outline-none focus:border-green-500">
             <option value="">Pipeline: todos</option>
-            {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+            {stages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
           <select value={convStatusFilter} onChange={e => { setConvStatusFilter(e.target.value); setPage(1); }}
             className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-400 focus:outline-none focus:border-green-500">
@@ -294,7 +294,7 @@ export default function Contacts() {
               {bulkAction === 'set_pipeline' && (
                 <select value={bulkValue} onChange={e => setBulkValue(e.target.value)}
                   className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none">
-                  {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                  {stages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               )}
               {bulkAction === 'assign_agent' && (

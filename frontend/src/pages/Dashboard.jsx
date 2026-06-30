@@ -2,14 +2,6 @@ import { useEffect, useState } from 'react';
 import { Users, MessageSquare, TrendingUp, Bell, Clock, Inbox, GitBranch, Download, UserCheck } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
-const STAGE_COLORS = {
-  nuevo: '#6b7280', contactado: '#3b82f6', en_progreso: '#f59e0b',
-  propuesta: '#8b5cf6', ganado: '#10b981', perdido: '#ef4444',
-};
-const STAGE_LABELS = {
-  nuevo: 'Nuevo', contactado: 'Contactado', en_progreso: 'En progreso',
-  propuesta: 'Propuesta', ganado: 'Ganado', perdido: 'Perdido',
-};
 const CONV_COLORS = { open: '#10b981', pending: '#f59e0b', closed: '#6b7280' };
 const CONV_LABELS = { open: 'Abierto', pending: 'Pendiente', closed: 'Cerrado' };
 
@@ -70,8 +62,8 @@ function HorizontalBar({ items, colorMap, labelMap, total }) {
     <div className="space-y-2.5">
       {items.map(item => {
         const key = item.pipeline_stage || item.conv_status;
-        const color = colorMap?.[key] || '#6b7280';
-        const label = labelMap?.[key] || key || 'Desconocido';
+        const color = item.color || colorMap?.[key] || '#6b7280';
+        const label = item.label || labelMap?.[key] || key || 'Desconocido';
         const pct = Math.round((item.n / (total || 1)) * 100);
         return (
           <div key={key} className="flex items-center gap-2.5">
@@ -178,7 +170,7 @@ export default function Dashboard() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
             <GitBranch size={12} /> Pipeline
           </h2>
-          <HorizontalBar items={stats?.pipelineFunnel} colorMap={STAGE_COLORS} labelMap={STAGE_LABELS} total={totalActive} />
+          <HorizontalBar items={stats?.pipelineFunnel} total={totalActive} />
         </div>
 
         {/* Conv status */}

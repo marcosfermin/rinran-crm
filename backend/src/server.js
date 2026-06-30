@@ -218,7 +218,7 @@ app.post('/api/wa/sessions/:name/webhook', auth, async (req, res) => {
 });
 
 // Reminder scheduler — emit SSE + Web Push + email when reminders come due
-const { broadcast: sseEmit } = require('./routes/sse');
+const { broadcast: sseEmit, sendToUser: sseSendToUser } = require('./routes/sse');
 const { sendReminderEmail } = require('./emailService');
 // Migration for notified_at column
 try { getDb().exec("ALTER TABLE reminders ADD COLUMN notified_at TEXT"); } catch {}
@@ -229,7 +229,7 @@ setInterval(async () => {
     const due = db.prepare("SELECT r.*, c.name as contact_name FROM reminders r JOIN contacts c ON r.contact_id = c.id WHERE r.done = 0 AND r.due_at <= datetime('now') AND r.notified_at IS NULL").all();
     for (const r of due) {
       db.prepare("UPDATE reminders SET notified_at = datetime('now') WHERE id = ?").run(r.id);
-      sseEmit('reminder', { id: r.id, title: r.title, contact_id: r.contact_id, contact_name: r.contact_name });
+      sseSendToUser(r.user_id, 'reminder', { id: r.id, title: r.title, contact_id: r.contact_id, contact_name: r.contact_name });
       try {
         await pushToUser(r.user_id, `Recordatorio: ${r.title}`, r.contact_name, { type: 'reminder', contact_id: r.contact_id });
       } catch {}

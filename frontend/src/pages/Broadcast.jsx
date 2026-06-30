@@ -30,16 +30,10 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-const STAGES = [
-  { key: '', label: 'Todos los contactos activos' },
-  { key: 'nuevo', label: 'Nuevo' }, { key: 'contactado', label: 'Contactado' },
-  { key: 'en_progreso', label: 'En progreso' }, { key: 'propuesta', label: 'Propuesta' },
-  { key: 'ganado', label: 'Ganado' }, { key: 'perdido', label: 'Perdido' },
-];
-
 export default function Broadcast() {
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
+  const [stages, setStages] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
   const [form, setForm] = useState({ name: '', message: '', category_id: '', pipeline_stage: '', tag_id: '', scheduled_at: '' });
   const [attachFile, setAttachFile] = useState(null);
@@ -57,6 +51,7 @@ export default function Broadcast() {
   useEffect(() => {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
     apiFetch('/api/tags').then(r => r?.json()).then(d => d && setTags(Array.isArray(d) ? d : []));
+    apiFetch('/api/pipeline-stages').then(r => r?.json()).then(d => d && setStages(Array.isArray(d) ? d : []));
     loadBroadcasts();
   }, []);
 
@@ -192,7 +187,8 @@ export default function Broadcast() {
                 <label className="text-xs text-gray-400 mb-1 block">Pipeline</label>
                 <select value={form.pipeline_stage} onChange={e => setForm(f => ({ ...f, pipeline_stage: e.target.value }))}
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
-                  {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  <option value="">Todos los contactos activos</option>
+                  {stages.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </select>
               </div>
             </div>

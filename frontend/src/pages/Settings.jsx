@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight, Mail, Database, Download, Upload, Eye, EyeOff, Copy, Link, RefreshCw } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight, Mail, Database, Download, Upload, Eye, EyeOff, Copy, Link, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -176,6 +176,21 @@ export default function Settings() {
     const r = await apiFetch(`/api/pipeline-stages/${id}`, { method: 'DELETE' });
     if (r?.ok) { setPipelineStages(prev => prev.filter(s => s.id !== id)); }
     else { const d = await r?.json(); setStageMsg({ text: d?.error || 'Error al eliminar', ok: false }); setTimeout(() => setStageMsg({ text: '', ok: false }), 4000); }
+  }
+
+  async function moveStage(id, direction) {
+    const idx = pipelineStages.findIndex(s => s.id === id);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= pipelineStages.length) return;
+    const a = pipelineStages[idx];
+    const b = pipelineStages[swapIdx];
+    await apiFetch(`/api/pipeline-stages/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: b.sort_order }) });
+    await apiFetch(`/api/pipeline-stages/${b.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: a.sort_order }) });
+    const updated = [...pipelineStages];
+    updated[idx] = { ...a, sort_order: b.sort_order };
+    updated[swapIdx] = { ...b, sort_order: a.sort_order };
+    updated.sort((x, y) => x.sort_order - y.sort_order);
+    setPipelineStages(updated);
   }
 
   // Assignment rules handlers
@@ -421,12 +436,22 @@ export default function Settings() {
           </h2>
           <p className="text-xs text-gray-500 mb-4">Definí las columnas del Pipeline. Arrastrá contactos entre columnas en la vista Pipeline.</p>
           <div className="space-y-2 mb-4">
-            {pipelineStages.map(s => (
-              <div key={s.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 border border-gray-700 bg-gray-800">
+            {pipelineStages.map((s, idx) => (
+              <div key={s.id} className="flex items-center gap-2 rounded-lg px-3 py-2.5 border border-gray-700 bg-gray-800">
                 <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-white">{s.label}</span>
                   <span className="text-xs text-gray-600 ml-2 font-mono">{s.key}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <button onClick={() => moveStage(s.id, 'up')} disabled={idx === 0}
+                    className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors">
+                    <ChevronUp size={13} />
+                  </button>
+                  <button onClick={() => moveStage(s.id, 'down')} disabled={idx === pipelineStages.length - 1}
+                    className="p-0.5 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors">
+                    <ChevronDown size={13} />
+                  </button>
                 </div>
                 <button onClick={() => deleteStage(s.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
                   <Trash2 size={13} />

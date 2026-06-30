@@ -37,8 +37,12 @@ router.get('/', (req, res) => {
   `).all();
 
   const pipelineFunnel = db.prepare(`
-    SELECT pipeline_stage, COUNT(*) as n FROM contacts
-    WHERE status = 'active' AND is_deleted != 1 GROUP BY pipeline_stage
+    SELECT c.pipeline_stage, ps.label, ps.color, COUNT(*) as n
+    FROM contacts c
+    LEFT JOIN pipeline_stages ps ON ps.key = c.pipeline_stage
+    WHERE c.status = 'active' AND c.is_deleted != 1
+    GROUP BY c.pipeline_stage
+    ORDER BY ps.sort_order, c.pipeline_stage
   `).all();
 
   const convStatusBreakdown = db.prepare(`

@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   const { search, conv_status, assigned_to, page = 1, limit = 40 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
-  let where = ['1=1'];
+  let where = ['c.is_deleted != 1'];
   const params = [];
 
   // Role-based filtering

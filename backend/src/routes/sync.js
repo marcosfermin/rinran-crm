@@ -215,6 +215,10 @@ async function runSync() {
           if (dup) continue;
 
           const direction = msg.fromMe ? 'outbound' : 'inbound';
+          // History is already-seen: outbound → 'sent', inbound → 'read'.
+          // Only genuinely new inbound messages (via the webhook) are 'received'/unread,
+          // so a history sync must not inflate the inbox unread badge.
+          const status = msg.fromMe ? 'sent' : 'read';
           const ts = msg.timestamp
             ? new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19)
             : null;
@@ -236,8 +240,8 @@ async function runSync() {
 
           db.prepare(`
             INSERT INTO messages (contact_id, direction, content, wa_message_id, status, sent_at)
-            VALUES (?, ?, ?, ?, 'received', COALESCE(?, datetime('now')))
-          `).run(contact.id, direction, text, waId, ts);
+            VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+          `).run(contact.id, direction, text, waId, status, ts);
 
           state.imported.messages++;
           saved++;

@@ -153,6 +153,70 @@ async function getChatMessages(chatId, limit = 500) {
   }
 }
 
+// Get all WhatsApp labels
+async function getLabels() {
+  try {
+    const session = await getSession();
+    if (!session) return [];
+    const sessionKey = session.name || session.id;
+    const res = await axios.get(`${base()}/api/${sessionKey}/labels`, { headers: headers(), timeout: 10000 });
+    return Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    console.error('[waha] getLabels error:', e.message);
+    return [];
+  }
+}
+
+// Get chats assigned to a specific label
+async function getLabelChats(labelId) {
+  try {
+    const session = await getSession();
+    if (!session) return [];
+    const sessionKey = session.name || session.id;
+    const res = await axios.get(
+      `${base()}/api/${sessionKey}/labels/${encodeURIComponent(labelId)}/chats`,
+      { headers: headers(), timeout: 10000 }
+    );
+    return Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+}
+
+// Get labels assigned to a specific chat
+async function getChatLabels(chatId) {
+  try {
+    const session = await getSession();
+    if (!session) return [];
+    const sessionKey = session.name || session.id;
+    const res = await axios.get(
+      `${base()}/api/${sessionKey}/labels/chats/${encodeURIComponent(chatId)}`,
+      { headers: headers(), timeout: 10000 }
+    );
+    return Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+}
+
+// Set labels for a chat (replaces all existing labels)
+async function setChatLabels(chatId, labelIds) {
+  try {
+    const session = await getSession();
+    if (!session) return false;
+    const sessionKey = session.name || session.id;
+    await axios.put(
+      `${base()}/api/${sessionKey}/labels/chats/${encodeURIComponent(chatId)}`,
+      { labels: labelIds.map(id => ({ id: String(id) })) },
+      { headers: headers(), timeout: 10000 }
+    );
+    return true;
+  } catch (e) {
+    console.error('[waha] setChatLabels error:', e.message);
+    return false;
+  }
+}
+
 // Configure webhook + NOWEB store for the active session
 async function configureWebhook(webhookUrl) {
   try {
@@ -173,4 +237,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };
+module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };

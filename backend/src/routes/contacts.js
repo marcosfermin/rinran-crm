@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
+const { getChatLabels, setChatLabels } = require('../whatsapp');
 
 // GET /contacts
 router.get('/', (req, res) => {
@@ -94,6 +95,30 @@ router.patch('/:id', (req, res) => {
   db.prepare(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`).run(...params);
   const updated = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
   res.json(updated);
+
+  // Push category change to WhatsApp labels (fire-and-forget)
+  if ('category_id' in req.body && updated.wa_chat_id) {
+    setImmediate(async () => {
+      try {
+        const allWaLinked = db.prepare('SELECT wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all()
+          .map(r => r.wa_label_id);
+        const currentLabels = await getChatLabels(updated.wa_chat_id);
+        // Keep labels not managed by CRM
+        const keepLabels = currentLabels
+          .filter(l => !allWaLinked.includes(String(l.id)))
+          .map(l => String(l.id));
+        // Add new category's WA label if it has one
+        if (req.body.category_id) {
+          const cat = db.prepare('SELECT wa_label_id FROM categories WHERE id = ?').get(req.body.category_id);
+          if (cat?.wa_label_id) keepLabels.push(cat.wa_label_id);
+        }
+        await setChatLabels(updated.wa_chat_id, keepLabels);
+        console.log(`[contacts] WA labels updated for ${updated.wa_chat_id}: [${keepLabels.join(',')}]`);
+      } catch (e) {
+        console.error('[contacts] WA label sync error:', e.message);
+      }
+    });
+  }
 });
 
 // DELETE /contacts/:id

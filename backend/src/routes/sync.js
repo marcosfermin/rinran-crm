@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact, getProfilePic } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact, getProfilePic, getLabels, getLabelChats } = require('../whatsapp');
 
 const MEDIA_LABELS = {
   image: '[Foto]',
@@ -46,11 +46,58 @@ async function resolvePhone(chatId) {
   return fromWaId(chatId);
 }
 
+async function syncLabels(db) {
+  const waLabels = await getLabels();
+  if (!waLabels.length) return {};
+
+  // Upsert WA labels as CRM categories
+  for (const label of waLabels) {
+    const labelId = String(label.id);
+    // Strip Unicode control chars (e.g. LRM ‎) that WhatsApp adds to label names
+    const labelName = label.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
+    const existing = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
+    if (!existing) {
+      const byName = db.prepare('SELECT id FROM categories WHERE name = ?').get(labelName);
+      if (byName) {
+        db.prepare('UPDATE categories SET wa_label_id = ? WHERE id = ?').run(labelId, byName.id);
+      } else {
+        db.prepare('INSERT INTO categories (name, color, wa_label_id) VALUES (?, ?, ?)')
+          .run(labelName, label.colorHex || '#6366f1', labelId);
+      }
+    } else {
+      // Fix existing categories that may have LRM chars in name
+      const existingFull = db.prepare('SELECT id, name FROM categories WHERE wa_label_id = ?').get(labelId);
+      const cleanName = existingFull.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
+      if (cleanName !== existingFull.name) {
+        db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(cleanName, existingFull.id);
+      }
+    }
+  }
+  console.log(`[sync] ${waLabels.length} WA labels synced as categories`);
+
+  // Build chatId → first matched category id map (efficient: iterate labels, not chats)
+  const chatCategoryMap = {};
+  for (const label of waLabels) {
+    const labelId = String(label.id);
+    const cat = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
+    if (!cat) continue;
+    const labelChats = await getLabelChats(labelId);
+    for (const lc of labelChats) {
+      const cid = lc.id || lc.chatId;
+      if (cid && !chatCategoryMap[cid]) {
+        chatCategoryMap[cid] = cat.id;
+      }
+    }
+  }
+  return chatCategoryMap;
+}
+
 async function runSync() {
   const db = getDb();
   console.log('[sync] Starting WAHA history sync...');
 
   try {
+    const chatCategoryMap = await syncLabels(db);
     const chats = await getAllChats();
     const individual = chats.filter(c => !c.isGroup);
     console.log(`[sync] ${chats.length} total chats, ${individual.length} individual`);
@@ -104,6 +151,13 @@ async function runSync() {
             db.prepare("UPDATE contacts SET name = ?, updated_at = datetime('now') WHERE id = ?").run(betterName, contact.id);
             contact = { ...contact, name: betterName };
           }
+        }
+
+        // Sync WA label → CRM category
+        const waCategoryId = chatCategoryMap[chatId];
+        if (waCategoryId && contact.category_id !== waCategoryId) {
+          db.prepare('UPDATE contacts SET category_id = ? WHERE id = ?').run(waCategoryId, contact.id);
+          contact = { ...contact, category_id: waCategoryId };
         }
 
         // Fetch profile picture (refresh on every sync so URLs don't expire)

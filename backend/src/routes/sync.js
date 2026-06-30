@@ -49,45 +49,45 @@ async function resolvePhone(chatId) {
 }
 
 async function syncLabels(db) {
-  const waLabels = await getLabels();
-  if (!waLabels.length) return {};
-
-  // Upsert WA labels as CRM categories (skip system labels: Unread=1, Favorites=2, Groups=3)
   const SYSTEM_LABEL_IDS = new Set(['1', '2', '3']);
-  for (const label of waLabels) {
-    const labelId = String(label.id);
-    if (SYSTEM_LABEL_IDS.has(labelId)) continue;
-    // Strip Unicode control chars (e.g. LRM ‎) that WhatsApp adds to label names
-    const labelName = label.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
-    const existing = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
-    if (!existing) {
-      const byName = db.prepare('SELECT id FROM categories WHERE name = ?').get(labelName);
-      if (byName) {
-        db.prepare('UPDATE categories SET wa_label_id = ? WHERE id = ?').run(labelId, byName.id);
+
+  // Try to upsert new labels from WAHA (optional — session may not have app state yet)
+  const waLabels = await getLabels();
+  if (waLabels.length) {
+    for (const label of waLabels) {
+      const labelId = String(label.id);
+      if (SYSTEM_LABEL_IDS.has(labelId)) continue;
+      const labelName = label.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
+      const existing = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
+      if (!existing) {
+        const byName = db.prepare('SELECT id FROM categories WHERE name = ?').get(labelName);
+        if (byName) {
+          db.prepare('UPDATE categories SET wa_label_id = ? WHERE id = ?').run(labelId, byName.id);
+        } else {
+          db.prepare('INSERT INTO categories (name, color, wa_label_id) VALUES (?, ?, ?)')
+            .run(labelName, label.colorHex || '#6366f1', labelId);
+        }
       } else {
-        db.prepare('INSERT INTO categories (name, color, wa_label_id) VALUES (?, ?, ?)')
-          .run(labelName, label.colorHex || '#6366f1', labelId);
-      }
-    } else {
-      // Fix existing categories that may have LRM chars in name
-      const existingFull = db.prepare('SELECT id, name FROM categories WHERE wa_label_id = ?').get(labelId);
-      const cleanName = existingFull.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
-      if (cleanName !== existingFull.name) {
-        db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(cleanName, existingFull.id);
+        const existingFull = db.prepare('SELECT id, name FROM categories WHERE wa_label_id = ?').get(labelId);
+        const cleanName = existingFull.name.replace(/[‎‏‪-‮⁦-⁩]/g, '').trim();
+        if (cleanName !== existingFull.name) {
+          db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(cleanName, existingFull.id);
+        }
       }
     }
+    console.log(`[sync] ${waLabels.length} WA labels upserted from WAHA`);
+  } else {
+    console.log('[sync] getLabels() returned [] (app state not synced yet) — using DB categories');
   }
-  console.log(`[sync] ${waLabels.length} WA labels synced as categories`);
 
-  // Build phone → category id map. getLabelChats returns @lid IDs which don't always
-  // match the @s.whatsapp.net IDs from getAllChats — resolve to phone first.
+  // Build phone → category id map using DB categories that have wa_label_id.
+  // This works even when getLabels() is empty, as long as categories were imported before.
+  const dbCategories = db.prepare('SELECT id, wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all();
   const phoneCategoryMap = {};
-  for (const label of waLabels) {
-    const labelId = String(label.id);
-    if (SYSTEM_LABEL_IDS.has(labelId)) continue;
-    const cat = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
-    if (!cat) continue;
-    const labelChats = await getLabelChats(labelId);
+
+  for (const cat of dbCategories) {
+    const labelChats = await getLabelChats(cat.wa_label_id);
+    if (!labelChats.length) continue;
     for (const lc of labelChats) {
       const cid = lc.id || lc.chatId;
       if (!cid || cid.endsWith('@g.us') || cid.endsWith('@broadcast')) continue;
@@ -96,7 +96,6 @@ async function syncLabels(db) {
       if (phone) {
         phoneKey = parsePhone(phone).phone;
       } else if (cid.endsWith('@lid')) {
-        // Can't resolve @lid via WAHA — fall back to DB lookup by wa_chat_id
         const stored = db.prepare('SELECT phone FROM contacts WHERE wa_chat_id = ?').get(cid);
         if (stored) phoneKey = stored.phone;
       }

@@ -148,13 +148,14 @@ router.post('/', async (req, res) => {
 });
 
 
-function isWithinHours(rangeStr) {
+function isWithinHours(rangeStr, tz = 'America/New_York') {
   const parts = rangeStr?.split('-');
   if (!parts || parts.length !== 2) return false;
-  const now = new Date();
   const [startH, startM] = parts[0].split(':').map(Number);
   const [endH, endM] = parts[1].split(':').map(Number);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowStr = new Date().toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+  const [h, m] = nowStr.split(':').map(Number);
+  const nowMin = h * 60 + m;
   const startMin = startH * 60 + (startM || 0);
   const endMin = endH * 60 + (endM || 0);
   return nowMin >= startMin && nowMin < endMin;

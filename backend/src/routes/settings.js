@@ -7,7 +7,7 @@ const { getDb } = require('../db');
 
 const DEFAULTS = {
   company_name: 'Rinran CRM',
-  timezone: 'America/Mexico_City',
+  timezone: 'America/New_York',
   business_hours_start: '09:00',
   business_hours_end: '18:00',
   sla_hours: '4',

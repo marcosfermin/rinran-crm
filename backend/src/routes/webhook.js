@@ -134,18 +134,25 @@ router.post('/', async (req, res) => {
     `).run(contact.id, text, wa_message_id);
     const msgId = insertedMsg.lastInsertRowid;
 
-    // Auto-download media for image/video/document messages so they render inline
-    if (msgData.hasMedia && wa_message_id) {
+    // Auto-download media so images/videos render inline instead of as placeholders.
+    // Use media.url from the webhook payload (WAHA serves it at localhost:3000 internally).
+    const mediaInfo = msgData.hasMedia && msgData.media?.url ? msgData.media : null;
+    if (mediaInfo) {
       setImmediate(async () => {
         try {
-          const result = await downloadMedia(wa_message_id);
-          if (!result) return;
-          const ext = (result.contentType.split('/')[1] || 'bin').split(';')[0];
-          const filename = `media_${msgId}.${ext}`;
-          fs.writeFileSync(path.join(uploadsDir, filename), result.data);
+          const axios = require('axios');
+          // WAHA gives http://localhost:3000/... — rewrite to the docker service name
+          const internalUrl = mediaInfo.url.replace('http://localhost:3000', 'http://waha:3000');
+          const resp = await axios.get(internalUrl, { responseType: 'arraybuffer', timeout: 30000 });
+          const contentType = mediaInfo.mimetype || resp.headers['content-type'] || 'application/octet-stream';
+          const ext = (contentType.split('/')[1] || 'bin').split(';')[0];
+          const origName = mediaInfo.filename ? mediaInfo.filename.replace(/[^a-zA-Z0-9._-]/g, '_') : '';
+          const filename = `media_${msgId}${origName ? '_' + origName : '.' + ext}`;
+          fs.writeFileSync(path.join(uploadsDir, filename), Buffer.from(resp.data));
           const localUrl = `/uploads/${filename}`;
           db.prepare('UPDATE messages SET media_url = ?, media_type = ?, media_filename = ? WHERE id = ?')
-            .run(localUrl, result.contentType, filename, msgId);
+            .run(localUrl, contentType, mediaInfo.filename || filename, msgId);
+          console.log(`[webhook] media saved: ${filename} (${contentType})`);
         } catch (e) {
           console.error('[webhook] media auto-download failed:', e.message);
         }

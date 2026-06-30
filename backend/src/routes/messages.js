@@ -296,16 +296,37 @@ router.post('/:id/download-media', async (req, res) => {
   if (!msg.wa_message_id) return res.status(400).json({ error: 'No WhatsApp message ID' });
   if (msg.media_url) return res.json({ media_url: msg.media_url, media_type: msg.media_type });
 
-  const result = await downloadMedia(msg.wa_message_id);
-  if (!result) return res.status(404).json({ error: 'Media not available from WAHA' });
+  // Try to find media URL from webhook log payload
+  let mediaUrl = null, mimetype = null, origFilename = null;
+  try {
+    const log = db.prepare(
+      "SELECT payload FROM webhook_log WHERE json_extract(payload,'$.payload.id') = ? LIMIT 1"
+    ).get(msg.wa_message_id);
+    if (log) {
+      const p = JSON.parse(log.payload);
+      const m = (p?.payload || p?.data)?.media;
+      if (m?.url) { mediaUrl = m.url.replace('http://localhost:3000', 'http://waha:3000'); mimetype = m.mimetype; origFilename = m.filename; }
+    }
+  } catch {}
 
-  const ext = result.contentType.split('/')[1]?.split(';')[0] || 'bin';
-  const filename = `media_${msg.id}.${ext}`;
+  let result = null;
+  if (mediaUrl) {
+    try {
+      const resp = await require('axios').get(mediaUrl, { responseType: 'arraybuffer', timeout: 30000 });
+      result = { data: Buffer.from(resp.data), contentType: mimetype || resp.headers['content-type'] || 'application/octet-stream' };
+    } catch {}
+  }
+  if (!result) result = await downloadMedia(msg.wa_message_id);
+  if (!result) return res.status(404).json({ error: 'Media not available' });
+
+  const ext = (result.contentType.split('/')[1] || 'bin').split(';')[0];
+  const safeName = origFilename ? origFilename.replace(/[^a-zA-Z0-9._-]/g, '_') : '';
+  const filename = `media_${msg.id}${safeName ? '_' + safeName : '.' + ext}`;
   const localUrl = `/uploads/${filename}`;
   fs.writeFileSync(path.join(uploadsDir, filename), result.data);
 
   db.prepare('UPDATE messages SET media_url = ?, media_type = ?, media_filename = ? WHERE id = ?')
-    .run(localUrl, result.contentType, filename, msg.id);
+    .run(localUrl, result.contentType, origFilename || filename, msg.id);
 
   res.json({ media_url: localUrl, media_type: result.contentType });
 });

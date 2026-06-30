@@ -385,11 +385,9 @@ router.patch('/:id', (req, res) => {
   if ('category_id' in req.body && (updated.wa_chat_id || updated.phone)) {
     setImmediate(async () => {
       try {
-        // @lid IDs are device-internal and not accepted by the labels API — use phone@c.us instead
-        let chatId = updated.wa_chat_id;
-        if (!chatId || chatId.endsWith('@lid')) {
-          chatId = toWaId(updated.phone);
-        }
+          // Use wa_chat_id directly (including @lid — WAHA labels API accepts it).
+        // Fall back to phone@c.us only when wa_chat_id is missing entirely.
+        let chatId = updated.wa_chat_id || toWaId(updated.phone);
         const allWaLinked = db.prepare('SELECT wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all()
           .map(r => r.wa_label_id);
         const currentLabels = await getChatLabels(chatId);

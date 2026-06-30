@@ -15,7 +15,8 @@ async function getSession() {
   if (_session) return _session;
   const res = await axios.get(`${base()}/api/sessions`, { headers: headers(), timeout: 10000 });
   const list = Array.isArray(res.data) ? res.data : [];
-  _session = list.find(s => s.status === 'WORKING' || s.status === 'ready') || list[0] || null;
+  // Only cache WORKING sessions — never cache a FAILED one or it persists stale
+  _session = list.find(s => s.status === 'WORKING' || s.status === 'ready') || null;
   return _session;
 }
 

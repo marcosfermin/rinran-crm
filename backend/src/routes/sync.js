@@ -91,14 +91,21 @@ async function syncLabels(db) {
     for (const lc of labelChats) {
       const cid = lc.id || lc.chatId;
       if (!cid || cid.endsWith('@g.us') || cid.endsWith('@broadcast')) continue;
+      let phoneKey = null;
       const phone = await resolvePhone(cid);
-      if (!phone) continue;
-      const parsed = parsePhone(phone);
-      if (!phoneCategoryMap[parsed.phone]) {
-        phoneCategoryMap[parsed.phone] = cat.id;
+      if (phone) {
+        phoneKey = parsePhone(phone).phone;
+      } else if (cid.endsWith('@lid')) {
+        // Can't resolve @lid via WAHA — fall back to DB lookup by wa_chat_id
+        const stored = db.prepare('SELECT phone FROM contacts WHERE wa_chat_id = ?').get(cid);
+        if (stored) phoneKey = stored.phone;
+      }
+      if (phoneKey && !phoneCategoryMap[phoneKey]) {
+        phoneCategoryMap[phoneKey] = cat.id;
       }
     }
   }
+  console.log(`[sync] phoneCategoryMap: ${Object.keys(phoneCategoryMap).length} contacts with labels`);
   return phoneCategoryMap;
 }
 
@@ -118,7 +125,20 @@ async function runSync() {
         if (!chatId) continue;
 
         const phone = await resolvePhone(chatId);
-        if (!phone) { console.log(`[sync] Skipping unresolvable LID: ${chatId}`); continue; }
+        if (!phone) {
+          // @lid that WAHA can't resolve — still apply category to any existing DB contact
+          if (chatId.endsWith('@lid')) {
+            const existing = db.prepare('SELECT id, phone, category_id FROM contacts WHERE wa_chat_id = ?').get(chatId);
+            if (existing) {
+              const waCategoryId = phoneCategoryMap[existing.phone];
+              if (waCategoryId && existing.category_id !== waCategoryId) {
+                db.prepare('UPDATE contacts SET category_id = ? WHERE id = ?').run(waCategoryId, existing.id);
+                console.log(`[sync] LID contact ${existing.phone} → category ${waCategoryId}`);
+              }
+            }
+          }
+          continue;
+        }
         const parsed = parsePhone(phone);
 
         // Prefer chat.name; fall back to pushName from contacts API; last resort: phone

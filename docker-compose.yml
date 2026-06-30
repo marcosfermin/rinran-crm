@@ -20,6 +20,8 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:80"
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY:-rinran-waha-key-change-me}
     depends_on:
       - backend
     networks:

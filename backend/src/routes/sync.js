@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact, getProfilePic, getLabels, getLabelChats } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, resolveLid, getContact, getProfilePic, getLabels, getLabelChats } = require('../whatsapp');
 
 const MEDIA_LABELS = {
   image: '[Foto]',
@@ -24,8 +24,7 @@ router.post('/', async (req, res) => {
   state.error = null;
   state.imported = { contacts: 0, messages: 0 };
   res.json({ ok: true, message: 'Sync started' });
-  const webhookUrl = process.env.WEBHOOK_URL || 'http://backend:4000/webhook';
-  configureWebhook(webhookUrl).catch(() => {});
+  // Webhook is already configured via WAHA env vars; no need to reconfigure on every sync.
   runSync().catch(e => {
     state.error = e.message;
     state.running = false;

@@ -79,21 +79,27 @@ async function syncLabels(db) {
   }
   console.log(`[sync] ${waLabels.length} WA labels synced as categories`);
 
-  // Build chatId → first matched category id map (efficient: iterate labels, not chats)
-  const chatCategoryMap = {};
+  // Build phone → category id map. getLabelChats returns @lid IDs which don't always
+  // match the @s.whatsapp.net IDs from getAllChats — resolve to phone first.
+  const phoneCategoryMap = {};
   for (const label of waLabels) {
     const labelId = String(label.id);
+    if (SYSTEM_LABEL_IDS.has(labelId)) continue;
     const cat = db.prepare('SELECT id FROM categories WHERE wa_label_id = ?').get(labelId);
     if (!cat) continue;
     const labelChats = await getLabelChats(labelId);
     for (const lc of labelChats) {
       const cid = lc.id || lc.chatId;
-      if (cid && !chatCategoryMap[cid]) {
-        chatCategoryMap[cid] = cat.id;
+      if (!cid || cid.endsWith('@g.us') || cid.endsWith('@broadcast')) continue;
+      const phone = await resolvePhone(cid);
+      if (!phone) continue;
+      const parsed = parsePhone(phone);
+      if (!phoneCategoryMap[parsed.phone]) {
+        phoneCategoryMap[parsed.phone] = cat.id;
       }
     }
   }
-  return chatCategoryMap;
+  return phoneCategoryMap;
 }
 
 async function runSync() {
@@ -101,7 +107,7 @@ async function runSync() {
   console.log('[sync] Starting WAHA history sync...');
 
   try {
-    const chatCategoryMap = await syncLabels(db);
+    const phoneCategoryMap = await syncLabels(db);
     const chats = await getAllChats();
     const individual = chats.filter(c => !c.isGroup);
     console.log(`[sync] ${chats.length} total chats, ${individual.length} individual`);
@@ -158,11 +164,12 @@ async function runSync() {
           }
         }
 
-        // Sync WA label → CRM category
-        const waCategoryId = chatCategoryMap[chatId];
+        // Sync WA label → CRM category (keyed by phone to handle @lid vs @s.whatsapp.net mismatch)
+        const waCategoryId = phoneCategoryMap[parsed.phone];
         if (waCategoryId && contact.category_id !== waCategoryId) {
           db.prepare('UPDATE contacts SET category_id = ? WHERE id = ?').run(waCategoryId, contact.id);
           contact = { ...contact, category_id: waCategoryId };
+          console.log(`[sync] ${parsed.phone} → category ${waCategoryId}`);
         }
 
         // Fetch profile picture (refresh on every sync so URLs don't expire)

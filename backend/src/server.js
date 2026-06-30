@@ -74,6 +74,52 @@ app.use('/api/messages',   auth, require('./routes/messages'));
 app.use('/api/stats',      auth, require('./routes/stats'));
 app.use('/api/inbox',      auth, require('./routes/inbox'));
 app.use('/api/status',     auth, require('./routes/status'));
+app.use('/api/templates',  auth, require('./routes/templates'));
+app.use('/api/team',       auth, require('./routes/users'));
+
+// WAHA sessions proxy — forwards to WAHA API
+const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';
+const WAHA_KEY = process.env.OPENWA_API_KEY || '';
+app.get('/api/wa/sessions', auth, async (req, res) => {
+  try {
+    const r = await axios.get(`${WAHA_URL}/api/sessions`, {
+      headers: { 'X-Api-Key': WAHA_KEY, Accept: 'application/json' }, timeout: 10000
+    });
+    res.json(r.data);
+  } catch { res.json([]); }
+});
+app.post('/api/wa/sessions', auth, async (req, res) => {
+  try {
+    const r = await axios.post(`${WAHA_URL}/api/sessions`, req.body, {
+      headers: { 'X-Api-Key': WAHA_KEY, 'Content-Type': 'application/json' }, timeout: 10000
+    });
+    res.status(r.status).json(r.data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+app.post('/api/wa/sessions/:name/:action', auth, async (req, res) => {
+  try {
+    const r = await axios.post(`${WAHA_URL}/api/sessions/${req.params.name}/${req.params.action}`, {}, {
+      headers: { 'X-Api-Key': WAHA_KEY }, timeout: 15000
+    });
+    res.status(r.status).json(r.data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+app.delete('/api/wa/sessions/:name', auth, async (req, res) => {
+  try {
+    const r = await axios.delete(`${WAHA_URL}/api/sessions/${req.params.name}`, {
+      headers: { 'X-Api-Key': WAHA_KEY }, timeout: 10000
+    });
+    res.status(r.status).json(r.data || { ok: true });
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+app.get('/api/wa/sessions/:name/qr', auth, async (req, res) => {
+  try {
+    const r = await axios.get(`${WAHA_URL}/api/${req.params.name}/auth/qr`, {
+      headers: { 'X-Api-Key': WAHA_KEY }, timeout: 10000
+    });
+    res.json(r.data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Rinran CRM backend running on port ${PORT}`));

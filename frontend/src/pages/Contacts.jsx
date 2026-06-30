@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Trash2, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
+import { Plus, Search, Trash2, ChevronLeft, ChevronRight, MessageCircle, Upload, Download } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -15,6 +15,8 @@ export default function Contacts() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', category_id: '', notes: '' });
   const [lightbox, setLightbox] = useState(null);
+  const [importResult, setImportResult] = useState(null);
+  const csvInputRef = useRef(null);
   const limit = 20;
 
   const load = useCallback(() => {
@@ -46,6 +48,29 @@ export default function Contacts() {
     }
   }
 
+  function exportCsv() {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (categoryFilter) params.set('category_id', categoryFilter);
+    window.location.href = `/api/contacts/export?${params}`;
+  }
+
+  async function importCsv(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const csv = await file.text();
+    const r = await apiFetch('/api/contacts/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv }),
+    });
+    const d = await r?.json();
+    setImportResult(d);
+    if (d?.imported > 0) load();
+    e.target.value = '';
+    setTimeout(() => setImportResult(null), 6000);
+  }
+
   async function deleteContact(id, e) {
     e.stopPropagation();
     if (!confirm('¿Eliminar contacto?')) return;
@@ -58,17 +83,33 @@ export default function Contacts() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-xl font-bold text-white">
           Contactos <span className="text-gray-500 text-base font-normal">({total})</span>
         </h1>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 bg-green-500 hover:bg-green-400 text-white px-3 py-2 rounded-xl text-sm font-medium transition-colors"
-        >
-          <Plus size={16} /> Agregar
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportCsv} title="Exportar CSV"
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
+            <Download size={15} /> <span className="hidden sm:inline">Exportar</span>
+          </button>
+          <button onClick={() => csvInputRef.current?.click()} title="Importar CSV"
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
+            <Upload size={15} /> <span className="hidden sm:inline">Importar</span>
+          </button>
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={importCsv} />
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-1.5 bg-green-500 hover:bg-green-400 text-white px-3 py-2 rounded-xl text-sm font-medium transition-colors">
+            <Plus size={16} /> Agregar
+          </button>
+        </div>
       </div>
+
+      {importResult && (
+        <div className={`px-4 py-3 rounded-lg text-sm border ${importResult.imported > 0 ? 'bg-green-900/20 border-green-800 text-green-300' : 'bg-yellow-900/20 border-yellow-800 text-yellow-300'}`}>
+          Importados: <strong>{importResult.imported}</strong> · Omitidos: <strong>{importResult.skipped}</strong>
+          {importResult.errors?.length > 0 && <span className="text-red-400 ml-2">{importResult.errors[0]}</span>}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2">

@@ -45,17 +45,18 @@ router.post('/', async (req, res) => {
       || msgData._data?.notifyName
       || `WhatsApp ${parsed.phone}`;
 
+    const sessionName = body?.session || '';
     let contact = db.prepare('SELECT * FROM contacts WHERE phone = ?').get(parsed.phone);
     if (!contact) {
       const r = db.prepare(`
-        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id)
-        VALUES (?, ?, ?, ?, ?, 'whatsapp', ?)
-      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawFrom);
+        INSERT INTO contacts (name, phone, country_code, country_flag, country_name, source, wa_chat_id, wa_session)
+        VALUES (?, ?, ?, ?, ?, 'whatsapp', ?, ?)
+      `).run(senderName, parsed.phone, parsed.country_code, parsed.country_flag, parsed.country_name, rawFrom, sessionName);
       contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(r.lastInsertRowid);
       console.log(`[webhook] New contact: ${parsed.phone} (${senderName})`);
     } else {
       if (!contact.wa_chat_id) {
-        db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(rawFrom, contact.id);
+        db.prepare('UPDATE contacts SET wa_chat_id = ?, wa_session = ? WHERE id = ?').run(rawFrom, sessionName || contact.wa_session, contact.id);
       }
       // Upgrade name if it still looks like a phone number and pushName is available
       const nameIsPhone = /^\+[\d\s\(\)\-\.]+$/.test(contact.name.trim()) || contact.name.startsWith('WhatsApp ');

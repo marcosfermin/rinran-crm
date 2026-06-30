@@ -73,6 +73,13 @@ function initSchema() {
       sent_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
     CREATE INDEX IF NOT EXISTS idx_messages_wa_id ON messages(wa_message_id);
     CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category_id);
@@ -89,6 +96,9 @@ function initSchema() {
   try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_url TEXT'); } catch {}
   try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_type TEXT'); } catch {}
   try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_filename TEXT'); } catch {}
+  try { db.exec("ALTER TABLE contacts ADD COLUMN pipeline_stage TEXT DEFAULT 'nuevo'"); } catch {}
+  try { db.exec('ALTER TABLE contacts ADD COLUMN assigned_to INTEGER'); } catch {}
+  try { db.exec('ALTER TABLE contacts ADD COLUMN wa_session TEXT'); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

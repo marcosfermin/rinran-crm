@@ -1,8 +1,17 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
+
+const STAGES = [
+  { key: 'nuevo', label: 'Nuevo' },
+  { key: 'contactado', label: 'Contactado' },
+  { key: 'en_progreso', label: 'En progreso' },
+  { key: 'propuesta', label: 'Propuesta' },
+  { key: 'ganado', label: 'Ganado' },
+  { key: 'perdido', label: 'Perdido' },
+];
 
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
@@ -10,11 +19,38 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function MediaContent({ msg }) {
+function MediaContent({ msg, onDownload }) {
   const url = msg.media_url;
-  if (!url) return null;
   const type = msg.media_type || '';
   const filename = msg.media_filename || 'archivo';
+  const [downloading, setDownloading] = useState(false);
+
+  // Placeholder [Foto] [Video] etc with no local URL → show download button
+  if (!url) {
+    const placeholders = { '[Foto]': '🖼️ Foto', '[Video]': '🎬 Video', '[Audio]': '🎵 Audio', '[Archivo]': '📎 Archivo', '[Sticker]': '🎨 Sticker' };
+    const label = placeholders[msg.content];
+    if (!label || !msg.wa_message_id) return null;
+    return (
+      <div className="flex items-center gap-2 mb-1 bg-white/10 rounded-lg px-3 py-2">
+        <span className="text-base">{label.split(' ')[0]}</span>
+        <span className="text-xs flex-1 text-gray-300">{label.split(' ')[1]}</span>
+        <button
+          onClick={async () => {
+            if (downloading) return;
+            setDownloading(true);
+            await onDownload(msg.id);
+            setDownloading(false);
+          }}
+          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+        >
+          {downloading
+            ? <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" />
+            : <Download size={12} />}
+          Ver
+        </button>
+      </div>
+    );
+  }
 
   if (type.startsWith('image/')) {
     return (
@@ -39,19 +75,20 @@ function MediaContent({ msg }) {
   );
 }
 
-function MessageBubble({ msg }) {
+const MEDIA_PLACEHOLDERS = ['[Foto]', '[Video]', '[Audio]', '[Archivo]', '[Sticker]'];
+
+function MessageBubble({ msg, onDownload }) {
   const isOut = msg.direction === 'outbound';
   const time = new Date(msg.sent_at.replace(' ', 'T') + 'Z')
     .toLocaleString('es', { hour: '2-digit', minute: '2-digit' });
-  const showText = msg.content && msg.content !== msg.media_filename;
+  const isPlaceholder = MEDIA_PLACEHOLDERS.includes(msg.content) && !msg.media_url;
+  const showText = msg.content && msg.content !== msg.media_filename && !isPlaceholder;
   return (
     <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
-        isOut
-          ? 'bg-green-600 text-white rounded-br-sm'
-          : 'bg-gray-800 text-gray-100 rounded-bl-sm'
+        isOut ? 'bg-green-600 text-white rounded-br-sm' : 'bg-gray-800 text-gray-100 rounded-bl-sm'
       }`}>
-        {msg.media_url && <MediaContent msg={msg} />}
+        {(msg.media_url || isPlaceholder) && <MediaContent msg={msg} onDownload={onDownload} />}
         {showText && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
         <p className={`text-[11px] mt-1 text-right ${isOut ? 'text-green-200' : 'text-gray-500'}`}>
           {time}{isOut && msg.status === 'failed' ? ' · ✗' : isOut ? ' ✓' : ''}
@@ -62,7 +99,6 @@ function MessageBubble({ msg }) {
 }
 
 function AttachIcon({ type }) {
-  if (type?.startsWith('image/')) return <File size={14} />;
   if (type?.startsWith('audio/')) return <Music size={14} />;
   return <File size={14} />;
 }
@@ -72,6 +108,8 @@ export default function ContactDetail() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [team, setTeam] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -79,7 +117,10 @@ export default function ContactDetail() {
   const [showInfo, setShowInfo] = useState(false);
   const [showLightbox, setShowLightbox] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [attachment, setAttachment] = useState(null); // { name, type, size, data, preview }
+  const [attachment, setAttachment] = useState(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const photoInputRef = useRef(null);
@@ -89,13 +130,19 @@ export default function ContactDetail() {
     apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => {
       if (!d) return;
       setData(d);
-      setEditForm({ name: d.name, category_id: d.category_id || '', notes: d.notes || '' });
+      setEditForm({
+        name: d.name, category_id: d.category_id || '',
+        notes: d.notes || '', pipeline_stage: d.pipeline_stage || 'nuevo',
+        assigned_to: d.assigned_to || '',
+      });
     });
   }
 
   useEffect(() => {
     load();
-    apiFetch('/api/categories').then(r => r?.json()).then(data => data && setCategories(data));
+    apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(d));
+    apiFetch('/api/team').then(r => r?.json()).then(d => d && setTeam(Array.isArray(d) ? d : []));
+    apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
     apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
   }, [id]);
 
@@ -108,7 +155,7 @@ export default function ContactDetail() {
   }, [id]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!showSearch) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [data?.messages?.length]);
 
   function handleFileSelect(e) {
@@ -118,9 +165,7 @@ export default function ContactDetail() {
     reader.onload = (ev) => {
       const dataUrl = ev.target.result;
       setAttachment({
-        name: file.name,
-        type: file.type,
-        size: file.size,
+        name: file.name, type: file.type, size: file.size,
         data: dataUrl.split(',')[1],
         preview: file.type.startsWith('image/') ? dataUrl : null,
       });
@@ -136,30 +181,29 @@ export default function ContactDetail() {
 
     if (attachment) {
       await apiFetch('/api/messages/send-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contact_id: parseInt(id),
-          data: attachment.data,
-          filename: attachment.name,
-          mimetype: attachment.type,
+          contact_id: parseInt(id), data: attachment.data,
+          filename: attachment.name, mimetype: attachment.type,
           caption: message.trim() || undefined,
         }),
       });
       setAttachment(null);
-      setMessage('');
     } else {
       await apiFetch('/api/messages/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contact_id: parseInt(id), message: message.trim() }),
       });
-      setMessage('');
     }
-
+    setMessage('');
     setSending(false);
     load();
     inputRef.current?.focus();
+  }
+
+  async function downloadMedia(msgId) {
+    const r = await apiFetch(`/api/messages/${msgId}/download-media`, { method: 'POST' });
+    if (r?.ok) load();
   }
 
   async function uploadPhoto(e) {
@@ -169,8 +213,7 @@ export default function ContactDetail() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const res = await apiFetch(`/api/contacts/${id}/photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: ev.target.result }),
       });
       if (res?.ok) load();
@@ -182,13 +225,31 @@ export default function ContactDetail() {
 
   async function saveEdit() {
     await apiFetch(`/api/contacts/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editForm),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...editForm,
+        category_id: editForm.category_id || null,
+        assigned_to: editForm.assigned_to || null,
+      }),
     });
     setEditing(false);
     load();
   }
+
+  function useTemplate(t) {
+    const text = t.content.replace(/\{\{nombre\}\}/g, data?.name || '');
+    setMessage(text);
+    setShowTemplates(false);
+    inputRef.current?.focus();
+  }
+
+  const allMessages = useMemo(() => [...(data?.messages || [])].reverse(), [data?.messages]);
+
+  const filteredMessages = useMemo(() => {
+    if (!searchQuery.trim()) return allMessages;
+    const q = searchQuery.toLowerCase();
+    return allMessages.filter(m => m.content?.toLowerCase().includes(q));
+  }, [allMessages, searchQuery]);
 
   if (!data) return (
     <div className="flex items-center justify-center h-full text-gray-600">
@@ -197,31 +258,20 @@ export default function ContactDetail() {
   );
 
   const cat = categories.find(c => c.id === data.category_id);
-  const messages = [...(data.messages || [])].reverse();
+  const stage = STAGES.find(s => s.key === (data.pipeline_stage || 'nuevo'));
 
   return (
     <div className="flex flex-col h-screen md:h-full">
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-3 py-3 flex items-center gap-3 shrink-0">
-        <button
-          onClick={() => navigate(-1)}
-          className="text-gray-400 hover:text-white p-1 -ml-1"
-        >
+        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-white p-1 -ml-1">
           <ArrowLeft size={20} />
         </button>
 
         <div className="relative shrink-0 group">
-          <Avatar
-            contact={data}
-            size="sm"
-            onClick={() => setShowLightbox(true)}
-          />
-          <button
-            onClick={() => photoInputRef.current?.click()}
-            disabled={uploadingPhoto}
-            className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Cambiar foto"
-          >
+          <Avatar contact={data} size="sm" onClick={() => setShowLightbox(true)} />
+          <button onClick={() => photoInputRef.current?.click()} disabled={uploadingPhoto}
+            className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
             {uploadingPhoto
               ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : <Camera size={14} className="text-white" />}
@@ -229,71 +279,101 @@ export default function ContactDetail() {
           <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={uploadPhoto} />
         </div>
 
-        <button
-          onClick={() => setShowInfo(v => !v)}
-          className="flex items-center gap-2 flex-1 min-w-0 text-left"
-        >
+        <button onClick={() => setShowInfo(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{data.name}</p>
-            <p className="text-xs text-gray-500 truncate">{data.phone}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-gray-500 truncate">{data.phone}</p>
+              {stage && (
+                <span className="text-[10px] text-gray-600 flex items-center gap-0.5">
+                  <GitBranch size={9} /> {stage.label}
+                </span>
+              )}
+            </div>
           </div>
-          <ChevronDown
-            size={14}
-            className={`text-gray-500 shrink-0 transition-transform ${showInfo ? 'rotate-180' : ''}`}
-          />
+          <ChevronDown size={14} className={`text-gray-500 shrink-0 transition-transform ${showInfo ? 'rotate-180' : ''}`} />
         </button>
 
-        {editing ? (
-          <div className="flex gap-1 shrink-0">
-            <button onClick={saveEdit} className="p-2 text-green-400 hover:bg-green-400/10 rounded-lg">
-              <Check size={16} />
-            </button>
-            <button onClick={() => setEditing(false)} className="p-2 text-gray-400 hover:bg-gray-800 rounded-lg">
-              <X size={16} />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="p-2 text-gray-500 hover:text-white hover:bg-gray-800 rounded-lg shrink-0"
-          >
-            <Edit2 size={16} />
+        <div className="flex gap-0.5 shrink-0">
+          <button onClick={() => setShowSearch(v => !v)}
+            className={`p-2 rounded-lg transition-colors ${showSearch ? 'text-green-400 bg-green-500/10' : 'text-gray-500 hover:text-white hover:bg-gray-800'}`}>
+            <Search size={16} />
           </button>
-        )}
+          {editing ? (
+            <>
+              <button onClick={saveEdit} className="p-2 text-green-400 hover:bg-green-400/10 rounded-lg"><Check size={16} /></button>
+              <button onClick={() => setEditing(false)} className="p-2 text-gray-400 hover:bg-gray-800 rounded-lg"><X size={16} /></button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)} className="p-2 text-gray-500 hover:text-white hover:bg-gray-800 rounded-lg">
+              <Edit2 size={16} />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Search bar */}
+      {showSearch && (
+        <div className="bg-gray-900 border-b border-gray-800 px-3 py-2 shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Buscar en la conversación..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-green-500"
+            />
+            {searchQuery && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                {filteredMessages.length} resultado{filteredMessages.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Collapsible info / edit panel */}
       {showInfo && (
         <div className="bg-gray-900/80 border-b border-gray-800 px-4 py-3 space-y-3 shrink-0">
           {editing ? (
             <>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Nombre</label>
-                <input
-                  value={editForm.name}
-                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Categoría</label>
-                <select
-                  value={editForm.category_id}
-                  onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500"
-                >
-                  <option value="">Sin categoría</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Notas</label>
-                <textarea
-                  value={editForm.notes}
-                  onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={2}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500 resize-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">Nombre</label>
+                  <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Categoría</label>
+                  <select value={editForm.category_id} onChange={e => setEditForm(f => ({ ...f, category_id: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                    <option value="">Sin categoría</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Pipeline</label>
+                  <select value={editForm.pipeline_stage} onChange={e => setEditForm(f => ({ ...f, pipeline_stage: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                    {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+                  </select>
+                </div>
+                {team.length > 0 && (
+                  <div className="col-span-2">
+                    <label className="text-xs text-gray-500 mb-1 block">Asignado a</label>
+                    <select value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                      <option value="">Sin asignar</option>
+                      {team.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">Notas</label>
+                  <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500 resize-none" />
+                </div>
               </div>
             </>
           ) : (
@@ -307,17 +387,22 @@ export default function ContactDetail() {
                 <p>
                   {cat
                     ? <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: cat.color + '33', color: cat.color }}>{cat.name}</span>
-                    : <span className="text-gray-600">—</span>
-                  }
+                    : <span className="text-gray-600">—</span>}
                 </p>
               </div>
               <div>
+                <span className="text-gray-500 text-xs">Pipeline</span>
+                <p className="text-gray-200">{stage?.label || '—'}</p>
+              </div>
+              {data.assigned_name && (
+                <div>
+                  <span className="text-gray-500 text-xs">Asignado</span>
+                  <p className="text-gray-200 flex items-center gap-1"><UserCheck size={12} /> {data.assigned_name}</p>
+                </div>
+              )}
+              <div>
                 <span className="text-gray-500 text-xs">Fuente</span>
                 <p className="text-gray-200">{data.source}</p>
-              </div>
-              <div>
-                <span className="text-gray-500 text-xs">Desde</span>
-                <p className="text-gray-200">{new Date(data.created_at).toLocaleDateString('es')}</p>
               </div>
               {data.notes && (
                 <div className="w-full">
@@ -332,82 +417,79 @@ export default function ContactDetail() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-2 bg-gray-950">
-        {messages.length === 0 && (
+        {filteredMessages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-700">
-            <p className="text-sm">Sin mensajes aún</p>
+            <p className="text-sm">{searchQuery ? 'Sin resultados' : 'Sin mensajes aún'}</p>
           </div>
         )}
-        {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
+        {filteredMessages.map(msg => <MessageBubble key={msg.id} msg={msg} onDownload={downloadMedia} />)}
         <div ref={messagesEndRef} />
       </div>
 
-      {showLightbox && (
-        <PhotoLightbox contact={data} onClose={() => setShowLightbox(false)} />
+      {showLightbox && <PhotoLightbox contact={data} onClose={() => setShowLightbox(false)} />}
+
+      {/* Templates picker */}
+      {showTemplates && templates.length > 0 && (
+        <div className="bg-gray-900 border-t border-gray-800 max-h-48 overflow-y-auto shrink-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
+            <span className="text-xs font-semibold text-gray-400 flex items-center gap-1.5"><Zap size={12} /> Respuestas rápidas</span>
+            <button onClick={() => setShowTemplates(false)} className="text-gray-600 hover:text-white"><X size={14} /></button>
+          </div>
+          {templates.map(t => (
+            <button key={t.id} onClick={() => useTemplate(t)}
+              className="w-full text-left px-3 py-2.5 hover:bg-gray-800 border-b border-gray-800/50 transition-colors">
+              <p className="text-xs font-semibold text-yellow-400 mb-0.5">{t.name}</p>
+              <p className="text-xs text-gray-400 truncate">{t.content}</p>
+            </button>
+          ))}
+        </div>
       )}
 
       {/* Input area */}
       <div className="bg-gray-900 border-t border-gray-800 shrink-0">
-        {/* Attachment preview */}
         {attachment && (
           <div className="px-3 pt-2.5 flex items-center gap-2">
             {attachment.preview
               ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
               : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">
                   <AttachIcon type={attachment.type} />
-                </div>
-            }
+                </div>}
             <div className="flex-1 min-w-0">
               <p className="text-xs text-white truncate">{attachment.name}</p>
               <p className="text-xs text-gray-500">{formatSize(attachment.size)}</p>
             </div>
-            <button
-              onClick={() => setAttachment(null)}
-              className="p-1 text-gray-500 hover:text-white"
-            >
-              <X size={15} />
-            </button>
+            <button onClick={() => setAttachment(null)} className="p-1 text-gray-500 hover:text-white"><X size={15} /></button>
           </div>
         )}
 
         <form onSubmit={sendMsg} className="px-3 py-3 flex gap-2 items-end">
-          {/* File attach button */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded-full transition-colors shrink-0"
-            title="Adjuntar archivo"
-          >
+          <button type="button" onClick={() => fileInputRef.current?.click()}
+            className="p-2.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded-full transition-colors shrink-0" title="Adjuntar archivo">
             <Paperclip size={18} />
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="*/*"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
+          <input ref={fileInputRef} type="file" accept="*/*" className="hidden" onChange={handleFileSelect} />
+
+          {templates.length > 0 && (
+            <button type="button" onClick={() => setShowTemplates(v => !v)}
+              className={`p-2.5 rounded-full transition-colors shrink-0 ${showTemplates ? 'text-yellow-400 bg-yellow-400/10' : 'text-gray-500 hover:text-yellow-400 hover:bg-gray-800'}`}
+              title="Respuestas rápidas">
+              <Zap size={18} />
+            </button>
+          )}
 
           <textarea
             ref={inputRef}
             value={message}
             onChange={e => setMessage(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); }
-            }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); } }}
             placeholder={attachment ? 'Añadir descripción (opcional)...' : 'Mensaje...'}
             rows={1}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500 resize-none max-h-32 leading-5"
             style={{ minHeight: '42px' }}
-            onInput={e => {
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
-            }}
+            onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'; }}
           />
-          <button
-            type="submit"
-            disabled={sending || (!message.trim() && !attachment)}
-            className="bg-green-500 hover:bg-green-400 active:bg-green-600 disabled:opacity-40 text-white p-2.5 rounded-full transition-colors shrink-0"
-          >
+          <button type="submit" disabled={sending || (!message.trim() && !attachment)}
+            className="bg-green-500 hover:bg-green-400 active:bg-green-600 disabled:opacity-40 text-white p-2.5 rounded-full transition-colors shrink-0">
             {sending
               ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : <Send size={18} />}

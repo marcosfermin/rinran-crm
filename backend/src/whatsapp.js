@@ -153,6 +153,23 @@ async function getChatMessages(chatId, limit = 500) {
   }
 }
 
+// Download media from a WhatsApp message
+async function downloadMedia(waMessageId, sessionKey) {
+  try {
+    const session = sessionKey || (await getSession())?.name;
+    if (!session) return null;
+    // WAHA NOWEB: GET /api/{session}/messages/{messageId}/download
+    const res = await axios.get(
+      `${base()}/api/${session}/messages/${encodeURIComponent(waMessageId)}/download`,
+      { headers: headers(), timeout: 30000, responseType: 'arraybuffer' }
+    );
+    const contentType = res.headers['content-type'] || 'application/octet-stream';
+    return { data: Buffer.from(res.data), contentType };
+  } catch {
+    return null;
+  }
+}
+
 // Send a file via WAHA
 async function sendFile(chatId, fileObj) {
   const session = await getSession();
@@ -253,4 +270,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, sendFile, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };
+module.exports = { sendText, sendFile, downloadMedia, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };

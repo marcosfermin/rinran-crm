@@ -3,7 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('../db');
-const { sendText, sendFile, toWaId } = require('../whatsapp');
+const { sendText, sendFile, downloadMedia, toWaId } = require('../whatsapp');
 
 const uploadsDir = path.join(__dirname, '../../../data/uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -159,6 +159,28 @@ router.post('/broadcast', async (req, res) => {
   }
 
   db.prepare("UPDATE broadcasts SET status = 'completed', sent_at = datetime('now') WHERE id = ?").run(broadcastId);
+});
+
+// POST /messages/:id/download-media — download and save media for a received message
+router.post('/:id/download-media', async (req, res) => {
+  const db = getDb();
+  const msg = db.prepare('SELECT * FROM messages WHERE id = ?').get(req.params.id);
+  if (!msg) return res.status(404).json({ error: 'Message not found' });
+  if (!msg.wa_message_id) return res.status(400).json({ error: 'No WhatsApp message ID' });
+  if (msg.media_url) return res.json({ media_url: msg.media_url, media_type: msg.media_type });
+
+  const result = await downloadMedia(msg.wa_message_id);
+  if (!result) return res.status(404).json({ error: 'Media not available from WAHA' });
+
+  const ext = result.contentType.split('/')[1]?.split(';')[0] || 'bin';
+  const filename = `media_${msg.id}.${ext}`;
+  const localUrl = `/uploads/${filename}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), result.data);
+
+  db.prepare('UPDATE messages SET media_url = ?, media_type = ?, media_filename = ? WHERE id = ?')
+    .run(localUrl, result.contentType, filename, msg.id);
+
+  res.json({ media_url: localUrl, media_type: result.contentType });
 });
 
 // GET /messages/broadcasts

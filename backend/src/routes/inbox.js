@@ -22,6 +22,7 @@ router.get('/', (req, res) => {
       c.phone,
       c.country_flag,
       c.country_name,
+      c.profile_pic_url,
       c.status,
       cat.name  AS category_name,
       cat.color AS category_color,

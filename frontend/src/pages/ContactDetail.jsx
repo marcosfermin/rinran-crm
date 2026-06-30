@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -35,8 +35,10 @@ export default function ContactDetail() {
   const [editForm, setEditForm] = useState({});
   const [showInfo, setShowInfo] = useState(false);
   const [showLightbox, setShowLightbox] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const photoInputRef = useRef(null);
 
   function load() {
     apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => {
@@ -81,6 +83,24 @@ export default function ContactDetail() {
     inputRef.current?.focus();
   }
 
+  async function uploadPhoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const res = await apiFetch(`/api/contacts/${id}/photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: ev.target.result }),
+      });
+      if (res?.ok) load();
+      setUploadingPhoto(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   async function saveEdit() {
     await apiFetch(`/api/contacts/${id}`, {
       method: 'PATCH',
@@ -111,11 +131,24 @@ export default function ContactDetail() {
           <ArrowLeft size={20} />
         </button>
 
-        <Avatar
-          contact={data}
-          size="sm"
-          onClick={() => setShowLightbox(true)}
-        />
+        <div className="relative shrink-0 group">
+          <Avatar
+            contact={data}
+            size="sm"
+            onClick={() => setShowLightbox(true)}
+          />
+          <button
+            onClick={() => photoInputRef.current?.click()}
+            disabled={uploadingPhoto}
+            className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Cambiar foto"
+          >
+            {uploadingPhoto
+              ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Camera size={14} className="text-white" />}
+          </button>
+          <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={uploadPhoto} />
+        </div>
 
         <button
           onClick={() => setShowInfo(v => !v)}

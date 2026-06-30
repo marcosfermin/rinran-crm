@@ -7,6 +7,8 @@ const fs = require('fs');
 
 const dataDir = path.join(__dirname, '../../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const uploadsDir = path.join(dataDir, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const app = express();
 const auth = require('./middleware/auth');
@@ -19,6 +21,50 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/webhook', require('./routes/webhook'));
 app.get('/health', (_, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+
+// Serve uploaded contact photos (public — no auth so <img> tags load directly)
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
+
+// Public photo proxy for WhatsApp CDN URLs — no auth so <img> tags load directly
+const { getDb } = require('./db');
+const axios = require('axios');
+app.get('/api/contacts/:id/photo', async (req, res) => {
+  try {
+    const contact = getDb().prepare('SELECT profile_pic_url FROM contacts WHERE id = ?').get(req.params.id);
+    if (!contact?.profile_pic_url) return res.status(404).end();
+    // Local uploads are served directly via /uploads; proxy only external URLs
+    if (contact.profile_pic_url.startsWith('/uploads/')) {
+      return res.redirect(contact.profile_pic_url);
+    }
+    const imgRes = await axios.get(contact.profile_pic_url, {
+      responseType: 'stream',
+      timeout: 10000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    res.setHeader('Content-Type', imgRes.headers['content-type'] || 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    imgRes.data.pipe(res);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+// Photo upload endpoint (auth required)
+app.post('/api/contacts/:id/photo', auth, (req, res) => {
+  const { image } = req.body; // base64: "data:image/jpeg;base64,..."
+  if (!image) return res.status(400).json({ error: 'image required' });
+  const match = image.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid image format' });
+  const ext = match[1].split('/')[1].replace('jpeg', 'jpg');
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'image too large (max 5MB)' });
+  const filename = `contact_${req.params.id}.${ext}`;
+  const filepath = path.join(uploadsDir, filename);
+  fs.writeFileSync(filepath, buffer);
+  const url = `/uploads/${filename}`;
+  getDb().prepare('UPDATE contacts SET profile_pic_url = ?, updated_at = datetime(\'now\') WHERE id = ?').run(url, req.params.id);
+  res.json({ url });
+});
 
 // Protected routes
 app.use('/api/sync',       auth, require('./routes/sync'));

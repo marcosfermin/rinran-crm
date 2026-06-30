@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Key, Globe, Clock, AlertTriangle, Webhook, Plus, Trash2, CheckCircle, Shield, ShieldCheck, ShieldOff, Users2, BookOpen, ToggleLeft, ToggleRight } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
@@ -24,20 +24,41 @@ export default function Settings() {
   const [tags, setTags] = useState([]);
   const [newTag, setNewTag] = useState({ name: '', color: '#6366f1' });
 
+  // 2FA state
+  const [twoFaEnabled, setTwoFaEnabled] = useState(false);
+  const [twoFaSetup, setTwoFaSetup] = useState(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const [twoFaMsg, setTwoFaMsg] = useState({ text: '', ok: false });
+  const [disablePwd, setDisablePwd] = useState('');
+  const [showDisable, setShowDisable] = useState(false);
+
+  // Assignment rules state
+  const [rules, setRules] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [newRule, setNewRule] = useState({ name: '', category_id: '', agent_id: '' });
+  const [ruleMsg, setRuleMsg] = useState('');
+
+  // Phonebook import
+  const [phonebookImporting, setPhonebookImporting] = useState(false);
+  const [phonebookResult, setPhonebookResult] = useState(null);
+
   useEffect(() => {
-    apiFetch('/api/settings').then(r => r?.json()).then(d => {
-      if (d) { setSettings(d); setForm(d); }
-    });
+    apiFetch('/api/settings').then(r => r?.json()).then(d => { if (d) { setSettings(d); setForm(d); } });
     apiFetch('/api/settings/custom-fields').then(r => r?.json()).then(d => d && setCustomFields(Array.isArray(d) ? d : []));
     apiFetch('/api/tags').then(r => r?.json()).then(d => d && setTags(Array.isArray(d) ? d : []));
-  }, []);
+    apiFetch('/api/auth/me').then(r => r?.json()).then(d => d?.user && setTwoFaEnabled(!!d.user.two_fa_enabled));
+    if (isAdmin) {
+      apiFetch('/api/settings/assignment-rules').then(r => r?.json()).then(d => d && setRules(Array.isArray(d) ? d : []));
+      apiFetch('/api/team').then(r => r?.json()).then(d => d && setAgents(Array.isArray(d) ? d : []));
+      apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
+    }
+  }, [isAdmin]);
 
   async function saveSettings(e) {
-    e.preventDefault();
-    setSaving(true);
+    e.preventDefault(); setSaving(true);
     const r = await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    const d = await r?.json();
-    setSaving(false);
+    const d = await r?.json(); setSaving(false);
     if (r?.ok) { setSettings(d); setSavedMsg('Guardado'); setTimeout(() => setSavedMsg(''), 3000); }
   }
 
@@ -56,8 +77,7 @@ export default function Settings() {
     const r = await apiFetch('/api/settings/webhook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ webhook_url: form.webhook_url }) });
     const d = await r?.json();
     setWebhookMsg(r?.ok ? `Webhook configurado en sesión "${d.session}"` : (d?.error || 'Error'));
-    setWebhookTesting(false);
-    setTimeout(() => setWebhookMsg(''), 5000);
+    setWebhookTesting(false); setTimeout(() => setWebhookMsg(''), 5000);
   }
 
   async function addCustomField() {
@@ -86,6 +106,58 @@ export default function Settings() {
     setTags(prev => prev.filter(t => t.id !== id));
   }
 
+  // 2FA handlers
+  async function setup2FA() {
+    const r = await apiFetch('/api/auth/2fa/setup');
+    const d = await r?.json();
+    if (d) setTwoFaSetup(d);
+  }
+
+  async function enable2FA(e) {
+    e.preventDefault();
+    const r = await apiFetch('/api/auth/2fa/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: twoFaCode }) });
+    const d = await r?.json();
+    if (r?.ok) { setTwoFaEnabled(true); setTwoFaSetup(null); setTwoFaCode(''); setTwoFaMsg({ text: '2FA activado', ok: true }); }
+    else setTwoFaMsg({ text: d?.error || 'Código incorrecto', ok: false });
+    setTimeout(() => setTwoFaMsg({ text: '', ok: false }), 4000);
+  }
+
+  async function disable2FA(e) {
+    e.preventDefault();
+    const r = await apiFetch('/api/auth/2fa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: disablePwd }) });
+    const d = await r?.json();
+    if (r?.ok) { setTwoFaEnabled(false); setShowDisable(false); setDisablePwd(''); setTwoFaMsg({ text: '2FA desactivado', ok: true }); }
+    else setTwoFaMsg({ text: d?.error || 'Error', ok: false });
+    setTimeout(() => setTwoFaMsg({ text: '', ok: false }), 4000);
+  }
+
+  // Assignment rules handlers
+  async function addRule() {
+    if (!newRule.agent_id) return;
+    const r = await apiFetch('/api/settings/assignment-rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...newRule, category_id: newRule.category_id || null }) });
+    const d = await r?.json();
+    if (r?.ok) { setRules(prev => [...prev, d]); setNewRule({ name: '', category_id: '', agent_id: '' }); setRuleMsg('Regla agregada'); setTimeout(() => setRuleMsg(''), 3000); }
+  }
+
+  async function toggleRule(id, is_active) {
+    await apiFetch(`/api/settings/assignment-rules/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !is_active }) });
+    setRules(prev => prev.map(r => r.id === id ? { ...r, is_active: is_active ? 0 : 1 } : r));
+  }
+
+  async function deleteRule(id) {
+    if (!confirm('¿Eliminar regla?')) return;
+    await apiFetch(`/api/settings/assignment-rules/${id}`, { method: 'DELETE' });
+    setRules(prev => prev.filter(r => r.id !== id));
+  }
+
+  async function importPhonebook() {
+    setPhonebookImporting(true); setPhonebookResult(null);
+    const r = await apiFetch('/api/sync/phonebook');
+    const d = await r?.json();
+    setPhonebookResult(d); setPhonebookImporting(false);
+    setTimeout(() => setPhonebookResult(null), 8000);
+  }
+
   if (!settings) return <div className="flex items-center justify-center h-full text-gray-600"><div className="animate-pulse">Cargando...</div></div>;
 
   return (
@@ -94,6 +166,64 @@ export default function Settings() {
         <SettingsIcon size={20} className="text-gray-400" />
         <h1 className="text-xl font-bold text-white">Configuración</h1>
       </div>
+
+      {/* 2FA */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
+          <Shield size={14} /> Verificación en 2 pasos (2FA)
+          <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-semibold ${twoFaEnabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-700 text-gray-500'}`}>
+            {twoFaEnabled ? 'Activo' : 'Inactivo'}
+          </span>
+        </h2>
+
+        {twoFaMsg.text && <p className={`text-sm mb-3 ${twoFaMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{twoFaMsg.text}</p>}
+
+        {!twoFaEnabled && !twoFaSetup && (
+          <button onClick={setup2FA}
+            className="flex items-center gap-2 bg-yellow-500/10 hover:bg-yellow-500/20 border border-yellow-700 text-yellow-400 px-4 py-2 rounded-lg text-sm transition-colors">
+            <ShieldCheck size={14} /> Activar 2FA
+          </button>
+        )}
+
+        {!twoFaEnabled && twoFaSetup && (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-400">Escanea este código QR con Google Authenticator, Authy u otra app TOTP:</p>
+            {twoFaSetup.qr_data_url ? (
+              <img src={twoFaSetup.qr_data_url} alt="QR 2FA" className="w-40 h-40 rounded-lg bg-white p-1" />
+            ) : (
+              <p className="text-xs text-gray-500 break-all font-mono bg-gray-800 p-2 rounded">{twoFaSetup.otpauth_url}</p>
+            )}
+            <div className="bg-gray-800 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Clave secreta (ingresa manualmente si no puedes escanear):</p>
+              <p className="font-mono text-sm text-white tracking-widest">{twoFaSetup.secret}</p>
+            </div>
+            <form onSubmit={enable2FA} className="flex gap-2">
+              <input required value={twoFaCode} onChange={e => setTwoFaCode(e.target.value.replace(/\D/g, ''))}
+                maxLength={6} inputMode="numeric" placeholder="Código de 6 dígitos"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white text-center tracking-widest font-mono focus:outline-none focus:border-yellow-500" />
+              <button type="submit" disabled={twoFaCode.length < 6}
+                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 text-black rounded-lg text-sm font-medium">Verificar</button>
+            </form>
+          </div>
+        )}
+
+        {twoFaEnabled && !showDisable && (
+          <button onClick={() => setShowDisable(true)}
+            className="flex items-center gap-2 text-red-400 hover:text-red-300 border border-red-800 hover:border-red-600 px-4 py-2 rounded-lg text-sm transition-colors">
+            <ShieldOff size={14} /> Desactivar 2FA
+          </button>
+        )}
+
+        {twoFaEnabled && showDisable && (
+          <form onSubmit={disable2FA} className="flex gap-2">
+            <input required type="password" value={disablePwd} onChange={e => setDisablePwd(e.target.value)}
+              placeholder="Confirma tu contraseña"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500" />
+            <button type="submit" className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium">Desactivar</button>
+            <button type="button" onClick={() => setShowDisable(false)} className="px-3 py-2 text-gray-500 hover:text-white">✕</button>
+          </form>
+        )}
+      </section>
 
       {/* General settings (admin only) */}
       {isAdmin && (
@@ -136,6 +266,75 @@ export default function Settings() {
               {savedMsg && <span className="text-green-400 text-sm flex items-center gap-1"><CheckCircle size={13} /> {savedMsg}</span>}
             </div>
           </form>
+        </section>
+      )}
+
+      {/* Phonebook import (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2"><BookOpen size={14} /> Importar agenda del teléfono</h2>
+          <p className="text-xs text-gray-500 mb-3">Importa todos los contactos de WhatsApp directamente desde la agenda del dispositivo conectado a WAHA.</p>
+          <div className="flex items-center gap-3">
+            <button onClick={importPhonebook} disabled={phonebookImporting}
+              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              {phonebookImporting ? <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> : <BookOpen size={14} />}
+              {phonebookImporting ? 'Importando...' : 'Importar agenda'}
+            </button>
+            {phonebookResult && (
+              <span className={`text-sm ${phonebookResult.error ? 'text-red-400' : 'text-green-400'}`}>
+                {phonebookResult.error || `${phonebookResult.imported} importados, ${phonebookResult.skipped} omitidos`}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Assignment rules (admin only) */}
+      {isAdmin && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2"><Users2 size={14} /> Asignación automática</h2>
+          <p className="text-xs text-gray-500 mb-4">Los nuevos contactos se asignan automáticamente al primer agente cuya regla coincida.</p>
+          <div className="space-y-2 mb-4">
+            {rules.length === 0 && <p className="text-xs text-gray-600">Sin reglas. Los nuevos contactos no se asignarán automáticamente.</p>}
+            {rules.map(r => (
+              <div key={r.id} className={`flex items-center gap-3 rounded-lg px-3 py-2.5 border ${r.is_active ? 'border-gray-700 bg-gray-800' : 'border-gray-800 bg-gray-900 opacity-60'}`}>
+                <button onClick={() => toggleRule(r.id, r.is_active)} title={r.is_active ? 'Desactivar' : 'Activar'}>
+                  {r.is_active
+                    ? <ToggleRight size={20} className="text-green-400" />
+                    : <ToggleLeft size={20} className="text-gray-600" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white">{r.name || 'Sin nombre'}</p>
+                  <p className="text-xs text-gray-500">
+                    {r.category_name ? `Categoría: ${r.category_name}` : 'Cualquier contacto nuevo'} → {r.agent_name}
+                  </p>
+                </div>
+                <button onClick={() => deleteRule(r.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {ruleMsg && <p className="text-sm text-green-400 mb-3">{ruleMsg}</p>}
+          <div className="grid grid-cols-3 gap-2">
+            <input value={newRule.name} onChange={e => setNewRule(n => ({ ...n, name: e.target.value }))}
+              placeholder="Nombre de la regla"
+              className="col-span-3 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+            <select value={newRule.category_id} onChange={e => setNewRule(n => ({ ...n, category_id: e.target.value }))}
+              className="col-span-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+              <option value="">Cualquier categoría</option>
+              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select required value={newRule.agent_id} onChange={e => setNewRule(n => ({ ...n, agent_id: e.target.value }))}
+              className="col-span-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+              <option value="">Seleccionar agente *</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <button onClick={addRule} disabled={!newRule.agent_id}
+              className="flex items-center justify-center gap-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+              <Plus size={14} /> Agregar
+            </button>
+          </div>
         </section>
       )}
 
@@ -208,8 +407,7 @@ export default function Settings() {
           </div>
           <div className="flex gap-2">
             <input value={newTag.name} onChange={e => setNewTag(n => ({ ...n, name: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addTag()}
-              placeholder="Nombre del tag..."
+              onKeyDown={e => e.key === 'Enter' && addTag()} placeholder="Nombre del tag..."
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
             <input type="color" value={newTag.color} onChange={e => setNewTag(n => ({ ...n, color: e.target.value }))}
               className="w-10 h-10 rounded-lg cursor-pointer bg-gray-800 border border-gray-700 p-1" />
@@ -240,8 +438,7 @@ export default function Settings() {
           </div>
           <div className="flex gap-2">
             <input value={newField.name} onChange={e => setNewField(n => ({ ...n, name: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addCustomField()}
-              placeholder="Nombre del campo..."
+              onKeyDown={e => e.key === 'Enter' && addCustomField()} placeholder="Nombre del campo..."
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
             <select value={newField.field_type} onChange={e => setNewField(n => ({ ...n, field_type: e.target.value }))}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">

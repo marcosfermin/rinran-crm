@@ -48,6 +48,10 @@ export default function Broadcast() {
   const [success, setSuccess] = useState(null);
   const [expandedBroadcast, setExpandedBroadcast] = useState(null);
   const [recipients, setRecipients] = useState({});
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [reschedulingId, setReschedulingId] = useState(null);
+  const [rescheduleAt, setRescheduleAt] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -57,7 +61,30 @@ export default function Broadcast() {
   }, []);
 
   function loadBroadcasts() {
-    apiFetch('/api/messages/broadcasts').then(r => r?.json()).then(d => d && setBroadcasts(Array.isArray(d) ? d : []));
+    const params = new URLSearchParams();
+    if (dateFrom) params.set('from', dateFrom);
+    if (dateTo) params.set('to', dateTo);
+    apiFetch(`/api/messages/broadcasts?${params}`).then(r => r?.json()).then(d => d && setBroadcasts(Array.isArray(d) ? d : []));
+  }
+
+  useEffect(() => { loadBroadcasts(); }, [dateFrom, dateTo]);
+
+  async function cancelBroadcast(id) {
+    if (!confirm('¿Cancelar este broadcast programado?')) return;
+    const r = await apiFetch(`/api/messages/broadcasts/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'cancelled' }),
+    });
+    if (r?.ok) loadBroadcasts();
+  }
+
+  async function rescheduleBroadcast(id) {
+    if (!rescheduleAt) return;
+    const r = await apiFetch(`/api/messages/broadcasts/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduled_at: rescheduleAt }),
+    });
+    if (r?.ok) { setReschedulingId(null); setRescheduleAt(''); loadBroadcasts(); }
   }
 
   async function previewCount() {
@@ -234,7 +261,20 @@ export default function Broadcast() {
 
         {/* History */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-          <h2 className="text-sm font-semibold text-gray-300 mb-4">Historial</h2>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 className="text-sm font-semibold text-gray-300">Historial</h2>
+            <div className="flex items-center gap-2">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500" />
+              <span className="text-gray-600 text-xs">—</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-green-500" />
+              {(dateFrom || dateTo) && (
+                <button onClick={() => { setDateFrom(''); setDateTo(''); }}
+                  className="text-xs text-gray-500 hover:text-white">✕</button>
+              )}
+            </div>
+          </div>
           <div className="space-y-3 max-h-[600px] overflow-y-auto">
             {broadcasts.map(b => (
               <div key={b.id} className="bg-gray-800 rounded-lg overflow-hidden">
@@ -272,6 +312,30 @@ export default function Broadcast() {
                   <DeliveryBar total={b.total_recipients} sent={b.sent_count} delivered={b.delivered_count} read={b.read_count} />
                 </button>
 
+                {b.status === 'scheduled' && (
+                  <div className="border-t border-gray-700 px-4 py-3 flex items-center gap-2 bg-yellow-950/20">
+                    {reschedulingId === b.id ? (
+                      <>
+                        <input type="datetime-local" value={rescheduleAt} onChange={e => setRescheduleAt(e.target.value)}
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                        <button onClick={() => rescheduleBroadcast(b.id)} disabled={!rescheduleAt}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 disabled:opacity-40 text-black font-medium">Guardar</button>
+                        <button onClick={() => setReschedulingId(null)} className="text-xs text-gray-500 hover:text-white">✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={e => { e.stopPropagation(); setReschedulingId(b.id); setRescheduleAt(b.scheduled_at?.slice(0,16) || ''); }}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-yellow-700 text-yellow-400 hover:bg-yellow-500/10">
+                          Reprogramar
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); cancelBroadcast(b.id); }}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-red-800 text-red-400 hover:bg-red-500/10">
+                          Cancelar
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {expandedBroadcast === b.id && recipients[b.id] && (
                   <div className="border-t border-gray-700 max-h-48 overflow-y-auto">
                     <div className="p-2 flex items-center gap-1 text-xs text-gray-500 border-b border-gray-700">

@@ -58,14 +58,19 @@ router.post('/change-password', authMiddleware, (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/auth/2fa/setup — generate TOTP secret + otpauth URL
-router.get('/2fa/setup', authMiddleware, (req, res) => {
+// GET /api/auth/2fa/setup — generate TOTP secret + otpauth URL + QR data URI
+router.get('/2fa/setup', authMiddleware, async (req, res) => {
   const secret2fa = authenticator.generateSecret();
   const user = getDb().prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
   const otpauthUrl = authenticator.keyuri(user.email, 'Rinran CRM', secret2fa);
-  // Store secret temporarily (user must verify before enabling)
   getDb().prepare('UPDATE users SET two_fa_secret = ? WHERE id = ?').run(secret2fa, req.user.id);
-  res.json({ secret: secret2fa, otpauth_url: otpauthUrl });
+  try {
+    const QRCode = require('qrcode');
+    const qr_data_url = await QRCode.toDataURL(otpauthUrl);
+    res.json({ secret: secret2fa, otpauth_url: otpauthUrl, qr_data_url });
+  } catch {
+    res.json({ secret: secret2fa, otpauth_url: otpauthUrl });
+  }
 });
 
 // POST /api/auth/2fa/enable — verify code then enable

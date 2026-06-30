@@ -228,6 +228,18 @@ function initSchema() {
   try { db.exec("ALTER TABLE contacts ADD COLUMN is_deleted INTEGER DEFAULT 0"); } catch {}
   try { db.exec("ALTER TABLE users ADD COLUMN two_fa_secret TEXT"); } catch {}
   try { db.exec("ALTER TABLE users ADD COLUMN two_fa_enabled INTEGER DEFAULT 0"); } catch {}
+  try { db.exec("ALTER TABLE broadcasts ADD COLUMN status TEXT DEFAULT 'completed'"); } catch {}
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      endpoint TEXT NOT NULL UNIQUE,
+      keys_json TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+  `);
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

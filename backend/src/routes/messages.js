@@ -225,15 +225,37 @@ router.post('/:id/download-media', async (req, res) => {
 // GET /messages/broadcasts
 router.get('/broadcasts', (req, res) => {
   const db = getDb();
+  const { from, to } = req.query;
+  let extra = '';
+  const params = [];
+  if (from) { extra += ' AND date(b.created_at) >= ?'; params.push(from); }
+  if (to)   { extra += ' AND date(b.created_at) <= ?'; params.push(to); }
   const broadcasts = db.prepare(`
     SELECT b.*, cat.name as category_name,
       (SELECT COUNT(*) FROM broadcast_recipients WHERE broadcast_id = b.id AND status = 'delivered') as delivered_count,
       (SELECT COUNT(*) FROM broadcast_recipients WHERE broadcast_id = b.id AND status = 'read') as read_count
     FROM broadcasts b
     LEFT JOIN categories cat ON b.category_id = cat.id
-    ORDER BY b.created_at DESC LIMIT 50
-  `).all();
+    WHERE 1=1 ${extra}
+    ORDER BY b.created_at DESC LIMIT 100
+  `).all(...params);
   res.json(broadcasts);
+});
+
+// PATCH /messages/broadcasts/:id — cancel or reschedule
+router.patch('/broadcasts/:id', (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Solo admins' });
+  const db = getDb();
+  const b = db.prepare('SELECT * FROM broadcasts WHERE id = ?').get(req.params.id);
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  if (b.status !== 'scheduled') return res.status(400).json({ error: 'Solo broadcasts programados pueden modificarse' });
+  const { status, scheduled_at } = req.body;
+  if (status === 'cancelled') {
+    db.prepare("UPDATE broadcasts SET status = 'cancelled' WHERE id = ?").run(req.params.id);
+  } else if (scheduled_at) {
+    db.prepare('UPDATE broadcasts SET scheduled_at = ? WHERE id = ?').run(scheduled_at, req.params.id);
+  }
+  res.json(db.prepare('SELECT * FROM broadcasts WHERE id = ?').get(req.params.id));
 });
 
 // GET /messages/broadcasts/:id/recipients

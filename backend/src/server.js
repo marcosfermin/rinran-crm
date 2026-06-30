@@ -75,6 +75,9 @@ app.use('/api/reminders',     auth, require('./routes/reminders'));
 app.use('/api/trash',         auth, require('./routes/trash'));
 app.use('/api/webhook-log',   auth, require('./routes/webhookLog'));
 
+const { router: pushRouter, pushToUser, pushToAll } = require('./routes/push');
+app.use('/api/push',          auth, pushRouter);
+
 // SSE — real-time push (auth via query param token for EventSource)
 const { sseRouter } = require('./routes/sse');
 app.get('/api/sse', (req, res) => {
@@ -123,14 +126,17 @@ app.get('/api/wa/sessions/:name/qr', auth, async (req, res) => {
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
 
-// Reminder scheduler — emit SSE when reminders come due
+// Reminder scheduler — emit SSE + Web Push when reminders come due
 const { broadcast: sseEmit } = require('./routes/sse');
-setInterval(() => {
+setInterval(async () => {
   try {
     const db = getDb();
     const due = db.prepare("SELECT r.*, c.name as contact_name FROM reminders r JOIN contacts c ON r.contact_id = c.id WHERE r.done = 0 AND r.due_at <= datetime('now')").all();
     for (const r of due) {
       sseEmit('reminder', { id: r.id, title: r.title, contact_id: r.contact_id, contact_name: r.contact_name });
+      try {
+        await pushToUser(r.user_id, `Recordatorio: ${r.title}`, r.contact_name, { type: 'reminder', contact_id: r.contact_id });
+      } catch {}
     }
   } catch {}
 }, 30000);

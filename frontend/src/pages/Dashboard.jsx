@@ -92,15 +92,25 @@ function HorizontalBar({ items, colorMap, labelMap, total }) {
   );
 }
 
+const DATE_PRESETS = [
+  { label: 'Hoy', days: 1 },
+  { label: '7d', days: 7 },
+  { label: '14d', days: 14 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+];
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(14);
 
   useEffect(() => {
-    apiFetch('/api/stats').then(r => r?.json()).then(d => { d && setStats(d); setLoading(false); }).catch(() => setLoading(false));
-    const t = setInterval(() => apiFetch('/api/stats').then(r => r?.json()).then(d => d && setStats(d)).catch(() => {}), 30000);
+    setLoading(true);
+    apiFetch(`/api/stats?days=${days}`).then(r => r?.json()).then(d => { d && setStats(d); setLoading(false); }).catch(() => setLoading(false));
+    const t = setInterval(() => apiFetch(`/api/stats?days=${days}`).then(r => r?.json()).then(d => d && setStats(d)).catch(() => {}), 60000);
     return () => clearInterval(t);
-  }, []);
+  }, [days]);
 
   async function exportCSV() {
     const r = await apiFetch('/api/stats/export');
@@ -122,12 +132,22 @@ export default function Dashboard() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-white">Dashboard</h1>
-        <button onClick={exportCSV}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors">
-          <Download size={13} /> Exportar CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            {DATE_PRESETS.map(p => (
+              <button key={p.days} onClick={() => setDays(p.days)}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors ${days === p.days ? 'border-green-600 bg-green-500/10 text-green-400' : 'border-gray-700 text-gray-500 hover:text-white hover:border-gray-600'}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={exportCSV}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors">
+            <Download size={13} /> CSV
+          </button>
+        </div>
       </div>
 
       {/* KPI cards */}
@@ -135,9 +155,9 @@ export default function Dashboard() {
         <StatCard icon={Users} label="Contactos activos" value={stats?.totalContacts}
           sub={`+${stats?.newToday ?? 0} hoy`} color="bg-blue-500/10 text-blue-400" />
         <StatCard icon={MessageSquare} label="Mensajes enviados" value={stats?.totalMessages}
-          color="bg-green-500/10 text-green-400" />
-        <StatCard icon={Bell} label="Recibidos hoy" value={stats?.inboundToday}
-          color="bg-purple-500/10 text-purple-400" />
+          sub={`en ${days === 1 ? 'hoy' : `${days} días`}`} color="bg-green-500/10 text-green-400" />
+        <StatCard icon={Bell} label="Recibidos" value={stats?.inboundInRange ?? stats?.inboundToday}
+          sub={`en ${days === 1 ? 'hoy' : `${days} días`}`} color="bg-purple-500/10 text-purple-400" />
         <StatCard icon={Inbox} label="Chats abiertos" value={stats?.openConvs}
           color="bg-emerald-500/10 text-emerald-400" />
         <StatCard icon={Clock} label="Tiempo resp." value={stats?.avgResponseMinutes ? `${stats.avgResponseMinutes}m` : '—'}

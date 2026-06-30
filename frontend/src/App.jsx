@@ -325,13 +325,91 @@ function BottomNav({ unread }) {
   );
 }
 
+// --- Push subscription ---
+async function subscribeToPush(token) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const r = await apiFetch('/api/push/vapid-key');
+    const { publicKey } = await r.json();
+    if (!publicKey) return;
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      // Re-register existing subscription in case it's a new session
+      const { endpoint, keys } = existing.toJSON();
+      await apiFetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ endpoint, keys }),
+      });
+      return;
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    const { endpoint, keys } = sub.toJSON();
+    await apiFetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, keys }),
+    });
+  } catch {}
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+}
+
+// --- PWA install prompt ---
+function useInstallPrompt() {
+  const [prompt, setPrompt] = useState(null);
+  useEffect(() => {
+    const handler = e => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+  const install = async () => { if (!prompt) return; prompt.prompt(); const { outcome } = await prompt.userChoice; if (outcome === 'accepted') setPrompt(null); };
+  return [prompt, install];
+}
+
+function InstallBanner({ onInstall, onDismiss }) {
+  return (
+    <div className="fixed bottom-20 md:bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-72 bg-gray-800 border border-gray-600 rounded-xl px-4 py-3 shadow-xl z-50 flex items-center gap-3 animate-slide-up">
+      <MessageSquare size={18} className="text-green-400 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-white">Instalar Rinran CRM</p>
+        <p className="text-[10px] text-gray-400">Acceso rápido desde tu pantalla de inicio</p>
+      </div>
+      <button onClick={onInstall} className="text-xs px-2.5 py-1 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium">Instalar</button>
+      <button onClick={onDismiss} className="text-gray-600 hover:text-white"><X size={13} /></button>
+    </div>
+  );
+}
+
 export default function App() {
   const { token, user, logout, checking } = useAuth();
   const [theme, toggleTheme] = useTheme();
   const [showCompose, setShowCompose] = useState(false);
   const [activeReminder, setActiveReminder] = useState(null);
+  const [installPrompt, triggerInstall] = useInstallPrompt();
+  const [dismissedInstall, setDismissedInstall] = useState(() => sessionStorage.getItem('install_dismissed') === '1');
   const location = useLocation();
   const isChat = location.pathname.startsWith('/contacts/');
+
+  // Subscribe to push when logged in (request permission if needed)
+  useEffect(() => {
+    if (!token) return;
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission === 'granted') {
+      subscribeToPush(token);
+    } else if (Notification.permission === 'default') {
+      Notification.requestPermission().then(p => { if (p === 'granted') subscribeToPush(token); }).catch(() => {});
+    }
+  }, [token]);
 
   const unread = useRealtimeUnread(
     token,
@@ -378,6 +456,12 @@ export default function App() {
       <BottomNav unread={unread} />
       {showCompose && <QuickCompose onClose={() => setShowCompose(false)} />}
       {activeReminder && <ReminderToast reminder={activeReminder} onClose={() => setActiveReminder(null)} />}
+      {installPrompt && !dismissedInstall && (
+        <InstallBanner
+          onInstall={() => { triggerInstall(); setDismissedInstall(true); }}
+          onDismiss={() => { setDismissedInstall(true); sessionStorage.setItem('install_dismissed', '1'); }}
+        />
+      )}
     </div>
   );
 }

@@ -1,9 +1,5 @@
-const CACHE = 'rinran-v1';
-const STATIC = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-];
+const CACHE = 'rinran-v2';
+const STATIC = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -22,17 +18,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const { request } = e;
   const url = new URL(request.url);
-
-  // Skip API/webhook calls — always network
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhook/') || url.pathname.startsWith('/uploads/')) {
-    return;
-  }
-
-  // Network-first for navigation (SPA), cache-first for assets
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhook/') || url.pathname.startsWith('/uploads/')) return;
   if (request.mode === 'navigate') {
-    e.respondWith(
-      fetch(request).catch(() => caches.match('/index.html'))
-    );
+    e.respondWith(fetch(request).catch(() => caches.match('/index.html')));
   } else {
     e.respondWith(
       caches.match(request).then(cached => {
@@ -47,4 +35,34 @@ self.addEventListener('fetch', e => {
       })
     );
   }
+});
+
+// Web Push notifications
+self.addEventListener('push', e => {
+  let data = { title: 'Rinran CRM', body: 'Nueva notificación', data: {} };
+  try { data = JSON.parse(e.data.text()); } catch {}
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/favicon.ico',
+      badge: '/favicon.ico',
+      data: data.data || {},
+      vibrate: [200, 100, 200],
+      tag: data.data?.type || 'general',
+      renotify: true,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const data = e.notification.data || {};
+  const url = data.contact_id ? `/contacts/${data.contact_id}` : '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+      const existing = cs.find(c => c.url.includes(self.location.origin));
+      if (existing) { existing.focus(); existing.navigate(self.location.origin + url); }
+      else clients.openWindow(self.location.origin + url);
+    })
+  );
 });

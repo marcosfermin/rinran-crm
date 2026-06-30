@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, MessageSquare, RefreshCw, AlertTriangle, Filter, X } from 'lucide-react';
+import { Search, MessageSquare, RefreshCw, AlertTriangle, Filter, X, Send, UserCheck, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -20,28 +20,18 @@ function timeAgo(dateStr) {
 function useSyncStatus() {
   const [status, setStatus] = useState({ running: false, lastSync: null, imported: { contacts: 0, messages: 0 } });
   const polling = useRef(null);
-
-  const check = useCallback(() => {
-    apiFetch('/api/sync').then(r => r?.json()).then(d => d && setStatus(d)).catch(() => {});
-  }, []);
-
+  const check = useCallback(() => { apiFetch('/api/sync').then(r => r?.json()).then(d => d && setStatus(d)).catch(() => {}); }, []);
   const startSync = useCallback(async () => {
     await apiFetch('/api/sync', { method: 'POST' });
     check();
     polling.current = setInterval(() => {
       apiFetch('/api/sync').then(r => r?.json()).then(d => {
-        if (!d) return;
-        setStatus(d);
+        if (!d) return; setStatus(d);
         if (!d.running) clearInterval(polling.current);
       }).catch(() => {});
     }, 2000);
   }, [check]);
-
-  useEffect(() => {
-    check();
-    return () => clearInterval(polling.current);
-  }, [check]);
-
+  useEffect(() => { check(); return () => clearInterval(polling.current); }, [check]);
   return { status, startSync };
 }
 
@@ -52,15 +42,60 @@ const CONV_STATUS_OPTIONS = [
   { value: 'closed', label: 'Cerrado' },
 ];
 
-const CONV_STATUS_COLORS = {
-  open: 'text-green-400',
-  pending: 'text-yellow-400',
-  closed: 'text-gray-500',
-};
+const CONV_STATUS_COLORS = { open: 'text-green-400', pending: 'text-yellow-400', closed: 'text-gray-500' };
+const CONV_STATUS_BG = { open: 'bg-green-500/10 border-green-700 text-green-400', pending: 'bg-yellow-500/10 border-yellow-700 text-yellow-400', closed: 'bg-gray-500/10 border-gray-700 text-gray-400' };
+
+// Quick reply modal
+function QuickReplyModal({ contact, onClose, onSent }) {
+  const [msg, setMsg] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+
+  async function send(e) {
+    e.preventDefault();
+    if (!msg.trim()) return;
+    setSending(true); setError('');
+    const r = await apiFetch('/api/messages/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact_id: contact.id, message: msg }),
+    });
+    setSending(false);
+    if (r?.ok) { onSent(); onClose(); }
+    else { const d = await r?.json(); setError(d?.error || 'Error al enviar'); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 px-3 pb-20 md:pb-0" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-4 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-white">
+            {(contact.name || '?')[0].toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">{contact.name}</p>
+            <p className="text-xs text-gray-500">{contact.phone}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-600 hover:text-white"><X size={15} /></button>
+        </div>
+        <form onSubmit={send} className="flex gap-2">
+          <input autoFocus required value={msg} onChange={e => setMsg(e.target.value)}
+            placeholder="Escribe tu respuesta..."
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500" />
+          <button type="submit" disabled={sending || !msg.trim()}
+            className="p-2.5 bg-green-500 hover:bg-green-400 disabled:opacity-50 rounded-xl text-white transition-colors">
+            <Send size={15} />
+          </button>
+        </form>
+        {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+      </div>
+    </div>
+  );
+}
 
 export default function InboxPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState('');
   const [convStatusFilter, setConvStatusFilter] = useState('open');
@@ -68,6 +103,9 @@ export default function InboxPage() {
   const [team, setTeam] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [quickReply, setQuickReply] = useState(null);
+  const [statusMenuId, setStatusMenuId] = useState(null);
+  const [assignMenuId, setAssignMenuId] = useState(null);
   const { status: syncStatus, startSync } = useSyncStatus();
 
   const load = useCallback(() => {
@@ -75,16 +113,12 @@ export default function InboxPage() {
     if (search) params.set('search', search);
     if (convStatusFilter) params.set('conv_status', convStatusFilter);
     if (agentFilter) params.set('assigned_to', agentFilter);
-    apiFetch(`/api/inbox?${params}`)
-      .then(r => r?.json())
-      .then(data => data && setConversations(data))
-      .catch(() => {});
+    apiFetch(`/api/inbox?${params}`).then(r => r?.json()).then(data => data && setConversations(data)).catch(() => {});
   }, [search, convStatusFilter, agentFilter]);
 
   useEffect(() => { load(); }, [load]);
 
-  // SSE: reload inbox on new inbound message (no polling needed)
-  const { token } = useAuth();
+  // SSE: reload on new message
   useEffect(() => {
     if (!token) return;
     const es = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
@@ -100,26 +134,41 @@ export default function InboxPage() {
   }, [user]);
 
   const wasSyncing = useRef(false);
+  useEffect(() => { if (wasSyncing.current && !syncStatus.running) load(); wasSyncing.current = syncStatus.running; }, [syncStatus.running]);
+
+  async function updateStatus(contactId, conv_status, e) {
+    e.stopPropagation();
+    setStatusMenuId(null);
+    await apiFetch(`/api/contacts/${contactId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conv_status }) });
+    setConversations(prev => prev.map(c => c.id === contactId ? { ...c, conv_status } : c));
+  }
+
+  async function updateAssign(contactId, assigned_to, e) {
+    e.stopPropagation();
+    setAssignMenuId(null);
+    const agentName = team.find(a => a.id === parseInt(assigned_to))?.name || null;
+    await apiFetch(`/api/contacts/${contactId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigned_to: assigned_to || null }) });
+    setConversations(prev => prev.map(c => c.id === contactId ? { ...c, assigned_to: assigned_to || null, assigned_name: agentName } : c));
+  }
+
+  // Close menus on outside click
   useEffect(() => {
-    if (wasSyncing.current && !syncStatus.running) load();
-    wasSyncing.current = syncStatus.running;
-  }, [syncStatus.running]);
+    if (statusMenuId === null && assignMenuId === null) return;
+    const close = () => { setStatusMenuId(null); setAssignMenuId(null); };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [statusMenuId, assignMenuId]);
 
   const totalUnread = conversations.reduce((s, c) => s + (c.unread_count || 0), 0);
   const slaBreaches = conversations.filter(c => c.sla_breach).length;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-white">Bandeja</h1>
-            {totalUnread > 0 && (
-              <span className="bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                {totalUnread}
-              </span>
-            )}
+            {totalUnread > 0 && <span className="bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{totalUnread}</span>}
             {slaBreaches > 0 && (
               <span className="bg-red-500/20 text-red-400 border border-red-800 text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
                 <AlertTriangle size={10} /> {slaBreaches} SLA
@@ -132,32 +181,19 @@ export default function InboxPage() {
               <Filter size={13} />
               {(convStatusFilter || agentFilter) ? 'Filtros activos' : 'Filtrar'}
             </button>
-            <button
-              onClick={startSync}
-              disabled={syncStatus.running}
-              title="Sincronizar historial de WhatsApp"
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-            >
+            <button onClick={startSync} disabled={syncStatus.running} title="Sincronizar historial"
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
               <RefreshCw size={13} className={syncStatus.running ? 'animate-spin' : ''} />
               {syncStatus.running ? 'Sync...' : 'Sync'}
             </button>
           </div>
         </div>
 
-        {/* Sync progress */}
-        {syncStatus.running && (
-          <div className="mb-2 text-xs text-gray-500 px-0.5">
-            Importando... {syncStatus.imported.contacts} contactos · {syncStatus.imported.messages} mensajes
-          </div>
-        )}
+        {syncStatus.running && <div className="mb-2 text-xs text-gray-500 px-0.5">Importando... {syncStatus.imported.contacts} contactos · {syncStatus.imported.messages} mensajes</div>}
         {syncStatus.lastSync && !syncStatus.running && (
-          <div className="mb-2 text-xs text-gray-600 px-0.5">
-            Sync: {new Date(syncStatus.lastSync).toLocaleString('es')}
-            {syncStatus.imported.messages > 0 && ` · ${syncStatus.imported.messages} importados`}
-          </div>
+          <div className="mb-2 text-xs text-gray-600 px-0.5">Sync: {new Date(syncStatus.lastSync).toLocaleString('es')}{syncStatus.imported.messages > 0 && ` · ${syncStatus.imported.messages} importados`}</div>
         )}
 
-        {/* Filters panel */}
         {showFilters && (
           <div className="mb-2 flex flex-wrap gap-2">
             <div className="flex gap-1 flex-wrap">
@@ -176,8 +212,7 @@ export default function InboxPage() {
               </select>
             )}
             {(convStatusFilter || agentFilter) && (
-              <button onClick={() => { setConvStatusFilter(''); setAgentFilter(''); }}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-white">
+              <button onClick={() => { setConvStatusFilter(''); setAgentFilter(''); }} className="flex items-center gap-1 text-xs text-gray-500 hover:text-white">
                 <X size={11} /> Limpiar
               </button>
             )}
@@ -186,16 +221,11 @@ export default function InboxPage() {
 
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar conversación..."
-            className="w-full bg-gray-800 border border-gray-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-green-500"
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar conversación..."
+            className="w-full bg-gray-800 border border-gray-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-gray-200 focus:outline-none focus:border-green-500" />
         </div>
       </div>
 
-      {/* Conversations */}
       <div className="flex-1 overflow-y-auto divide-y divide-gray-800/60">
         {conversations.length === 0 && !syncStatus.running && (
           <div className="flex flex-col items-center justify-center h-64 text-gray-600">
@@ -204,64 +234,97 @@ export default function InboxPage() {
             <p className="text-xs mt-1 text-gray-700">Presioná "Sync" para importar el historial</p>
           </div>
         )}
+
         {conversations.map(c => (
-          <button
-            key={c.id}
-            onClick={() => navigate(`/contacts/${c.id}`)}
-            className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors text-left ${c.sla_breach ? 'border-l-2 border-red-500' : ''}`}
-          >
-            <div className="relative shrink-0">
-              <Avatar
-                contact={c}
-                size="md"
-                onClick={e => { e.stopPropagation(); setLightbox(c); }}
-              />
-              {c.unread_count > 0 && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-950" />
-              )}
+          <div key={c.id}
+            className={`flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 transition-colors ${c.sla_breach ? 'border-l-2 border-red-500' : ''}`}>
+
+            {/* Avatar — click opens contact */}
+            <div className="relative shrink-0 cursor-pointer" onClick={() => navigate(`/contacts/${c.id}`)}>
+              <Avatar contact={c} size="md" onClick={e => { e.stopPropagation(); setLightbox(c); }} />
+              {c.unread_count > 0 && <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-950" />}
             </div>
 
-            <div className="flex-1 min-w-0">
+            {/* Main content — click opens contact */}
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/contacts/${c.id}`)}>
               <div className="flex items-baseline justify-between gap-2 mb-0.5">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className={`text-sm font-semibold truncate ${c.unread_count > 0 ? 'text-white' : 'text-gray-300'}`}>
-                    {c.name}
-                  </span>
-                  {c.sla_breach && <AlertTriangle size={11} className="text-red-400 shrink-0" title="SLA superado" />}
-                  {c.conv_status && c.conv_status !== 'open' && (
-                    <span className={`text-[10px] shrink-0 ${CONV_STATUS_COLORS[c.conv_status] || 'text-gray-500'}`}>
-                      {c.conv_status === 'pending' ? '⏳' : '✓'}
-                    </span>
+                  <span className={`text-sm font-semibold truncate ${c.unread_count > 0 ? 'text-white' : 'text-gray-300'}`}>{c.name}</span>
+                  {c.sla_breach && <AlertTriangle size={11} className="text-red-400 shrink-0" />}
+                </div>
+                <span className={`text-xs shrink-0 ${c.unread_count > 0 ? 'text-green-400' : 'text-gray-600'}`}>{timeAgo(c.last_message_at)}</span>
+              </div>
+              <p className={`text-xs truncate ${c.unread_count > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
+                {c.last_direction === 'outbound' && <span className="text-green-500 mr-1">✓</span>}
+                {c.last_message || <span className="italic text-gray-600">Sin mensajes</span>}
+              </p>
+            </div>
+
+            {/* Inline actions */}
+            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+              {c.unread_count > 0 && (
+                <span className="bg-green-500 text-white text-[11px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1 mr-1">
+                  {c.unread_count > 99 ? '99+' : c.unread_count}
+                </span>
+              )}
+
+              {/* Quick reply */}
+              <button onClick={e => { e.stopPropagation(); setQuickReply(c); }}
+                title="Responder rápido"
+                className="p-1.5 text-gray-600 hover:text-green-400 transition-colors rounded-lg hover:bg-gray-800">
+                <Send size={13} />
+              </button>
+
+              {/* Status pill */}
+              <div className="relative">
+                <button onClick={e => { e.stopPropagation(); setStatusMenuId(statusMenuId === c.id ? null : c.id); setAssignMenuId(null); }}
+                  className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${CONV_STATUS_BG[c.conv_status] || 'bg-gray-700 text-gray-400 border-gray-600'}`}>
+                  {c.conv_status === 'open' ? '●' : c.conv_status === 'pending' ? '⏳' : '✓'}
+                  <ChevronDown size={9} />
+                </button>
+                {statusMenuId === c.id && (
+                  <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden w-32">
+                    {['open', 'pending', 'closed'].map(s => (
+                      <button key={s} onClick={e => updateStatus(c.id, s, e)}
+                        className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors ${CONV_STATUS_COLORS[s]}`}>
+                        {s === 'open' ? '● Abierto' : s === 'pending' ? '⏳ Pendiente' : '✓ Cerrado'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Agent assign (admin only) */}
+              {user?.role === 'admin' && team.length > 0 && (
+                <div className="relative">
+                  <button onClick={e => { e.stopPropagation(); setAssignMenuId(assignMenuId === c.id ? null : c.id); setStatusMenuId(null); }}
+                    title={c.assigned_name || 'Sin asignar'}
+                    className="p-1.5 text-gray-600 hover:text-blue-400 transition-colors rounded-lg hover:bg-gray-800">
+                    <UserCheck size={13} />
+                  </button>
+                  {assignMenuId === c.id && (
+                    <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden w-40">
+                      <button onClick={e => updateAssign(c.id, '', e)}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-400 hover:bg-gray-700">
+                        Sin asignar
+                      </button>
+                      {team.map(a => (
+                        <button key={a.id} onClick={e => updateAssign(c.id, a.id, e)}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-700 transition-colors ${c.assigned_to === a.id ? 'text-blue-400 font-medium' : 'text-gray-300'}`}>
+                          {a.name}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
-                <span className={`text-xs shrink-0 ${c.unread_count > 0 ? 'text-green-400' : 'text-gray-600'}`}>
-                  {timeAgo(c.last_message_at)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <p className={`text-xs truncate ${c.unread_count > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
-                  {c.last_direction === 'outbound' && <span className="text-green-500 mr-1">✓</span>}
-                  {c.assigned_name && <span className="text-blue-400 mr-1">[{c.assigned_name}]</span>}
-                  {c.last_message || <span className="italic text-gray-600">Sin mensajes</span>}
-                </p>
-                {c.unread_count > 0 && (
-                  <span className="shrink-0 bg-green-500 text-white text-[11px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1">
-                    {c.unread_count > 99 ? '99+' : c.unread_count}
-                  </span>
-                )}
-                {c.category_name && !c.unread_count && (
-                  <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{ backgroundColor: c.category_color + '22', color: c.category_color }}>
-                    {c.category_name}
-                  </span>
-                )}
-              </div>
+              )}
             </div>
-          </button>
+          </div>
         ))}
       </div>
 
       <PhotoLightbox contact={lightbox} onClose={() => setLightbox(null)} />
+      {quickReply && <QuickReplyModal contact={quickReply} onClose={() => setQuickReply(null)} onSent={load} />}
     </div>
   );
 }

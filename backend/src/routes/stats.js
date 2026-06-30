@@ -4,11 +4,22 @@ const { getDb } = require('../db');
 
 router.get('/', (req, res) => {
   const db = getDb();
+  const days = Math.min(parseInt(req.query.days) || 14, 365);
+  const from = req.query.from || null;
+  const to = req.query.to || null;
+  const dateFilter = from && to
+    ? `AND date(sent_at) >= '${from}' AND date(sent_at) <= '${to}'`
+    : `AND sent_at >= datetime('now', '-${days} days')`;
+  const contactDateFilter = from && to
+    ? `AND date(created_at) >= '${from}' AND date(created_at) <= '${to}'`
+    : `AND created_at >= datetime('now', '-${days} days')`;
 
   const totalContacts = db.prepare("SELECT COUNT(*) as n FROM contacts WHERE status = 'active' AND is_deleted != 1").get().n;
   const newToday = db.prepare("SELECT COUNT(*) as n FROM contacts WHERE date(created_at) = date('now') AND is_deleted != 1").get().n;
-  const totalMessages = db.prepare("SELECT COUNT(*) as n FROM messages WHERE direction = 'outbound'").get().n;
+  const newInRange = db.prepare(`SELECT COUNT(*) as n FROM contacts WHERE is_deleted != 1 ${contactDateFilter}`).get().n;
+  const totalMessages = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'outbound' ${dateFilter}`).get().n;
   const inboundToday = db.prepare("SELECT COUNT(*) as n FROM messages WHERE direction = 'inbound' AND date(sent_at) = date('now')").get().n;
+  const inboundInRange = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'inbound' ${dateFilter}`).get().n;
   const byCountry = db.prepare("SELECT country_flag, country_name, COUNT(*) as n FROM contacts WHERE is_deleted != 1 GROUP BY country_code ORDER BY n DESC LIMIT 10").all();
   const byCategory = db.prepare(`
     SELECT cat.name, cat.color, COUNT(c.id) as n
@@ -21,7 +32,7 @@ router.get('/', (req, res) => {
            SUM(CASE WHEN direction='inbound' THEN 1 ELSE 0 END) as inbound,
            SUM(CASE WHEN direction='outbound' THEN 1 ELSE 0 END) as outbound
     FROM messages
-    WHERE sent_at >= datetime('now', '-14 days')
+    WHERE 1=1 ${dateFilter}
     GROUP BY day ORDER BY day
   `).all();
 
@@ -79,11 +90,12 @@ router.get('/', (req, res) => {
   const overdueReminders = db.prepare("SELECT COUNT(*) as n FROM reminders WHERE done = 0 AND due_at < datetime('now')").get().n;
 
   res.json({
-    totalContacts, newToday, totalMessages, inboundToday,
+    totalContacts, newToday, newInRange, totalMessages, inboundToday, inboundInRange,
     openConvs, pendingConvs,
     avgResponseMinutes: Math.round(avgResponseTime?.avg_minutes || 0),
     byCountry, byCategory, msgPerDay, pipelineFunnel, convStatusBreakdown,
     agentMetrics, overdueReminders,
+    days, from, to,
   });
 });
 

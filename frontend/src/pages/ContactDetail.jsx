@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag, Bell } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag, Bell, Mic, MicOff, MapPin, Phone } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -117,10 +117,19 @@ export default function ContactDetail() {
   const [customFields, setCustomFields] = useState([]);
   const [customFieldEdits, setCustomFieldEdits] = useState({});
   const [savingFields, setSavingFields] = useState(false);
+  // WAHA features
+  const [recording, setRecording] = useState(false);
+  const [recordingSecs, setRecordingSecs] = useState(0);
+  const [numberStatus, setNumberStatus] = useState(null); // null | 'checking' | { exists, phone }
+  const [sendingLocation, setSendingLocation] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const photoInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const typingTimerRef = useRef(null);
 
   function load() {
     apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => {
@@ -168,6 +177,7 @@ export default function ContactDetail() {
     apiFetch('/api/templates').then(r => r?.json()).then(d => d && setTemplates(Array.isArray(d) ? d : []));
     apiFetch('/api/tags').then(r => r?.json()).then(d => d && setAllTags(Array.isArray(d) ? d : []));
     apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
+    apiFetch('/api/messages/send-seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id) }) }).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -197,8 +207,13 @@ export default function ContactDetail() {
   async function sendMsg(e) {
     e.preventDefault();
     if ((!message.trim() && !attachment) || sending) return;
+    stopTyping();
     setSending(true);
-    if (attachment) {
+    if (attachment?.isVoice) {
+      await apiFetch('/api/messages/send-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_id: parseInt(id), data: attachment.data, mimetype: attachment.type }) });
+      setAttachment(null);
+    } else if (attachment) {
       await apiFetch('/api/messages/send-file', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contact_id: parseInt(id), data: attachment.data, filename: attachment.name, mimetype: attachment.type, caption: message.trim() || undefined }) });
       setAttachment(null);
@@ -278,6 +293,90 @@ export default function ContactDetail() {
     setMessage(text); setShowTemplates(false); inputRef.current?.focus();
   }
 
+  // Typing indicator — debounced, fire on input change
+  function handleTypingInput(value) {
+    setMessage(value);
+    clearTimeout(typingTimerRef.current);
+    if (value.trim()) {
+      apiFetch('/api/messages/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id), active: true }) }).catch(() => {});
+      typingTimerRef.current = setTimeout(() => {
+        apiFetch('/api/messages/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id), active: false }) }).catch(() => {});
+      }, 3000);
+    } else {
+      apiFetch('/api/messages/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id), active: false }) }).catch(() => {});
+    }
+  }
+
+  function stopTyping() {
+    clearTimeout(typingTimerRef.current);
+    apiFetch('/api/messages/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact_id: parseInt(id), active: false }) }).catch(() => {});
+  }
+
+  // Voice recording
+  async function toggleRecording() {
+    if (recording) {
+      // stop
+      mediaRecorderRef.current?.stop();
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mime = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/mp4';
+        const mr = new MediaRecorder(stream, { mimeType: mime });
+        audioChunksRef.current = [];
+        mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+        mr.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          clearInterval(recordingTimerRef.current);
+          setRecording(false); setRecordingSecs(0);
+          const blob = new Blob(audioChunksRef.current, { type: mime });
+          const reader = new FileReader();
+          reader.onload = ev => {
+            const b64 = ev.target.result.split(',')[1];
+            setAttachment({ name: `nota_voz_${Date.now()}.ogg`, type: mime, size: blob.size, data: b64, isVoice: true });
+          };
+          reader.readAsDataURL(blob);
+        };
+        mr.start(250);
+        mediaRecorderRef.current = mr;
+        setRecording(true); setRecordingSecs(0);
+        recordingTimerRef.current = setInterval(() => setRecordingSecs(s => s + 1), 1000);
+      } catch (e) { alert('Micrófono no disponible: ' + e.message); }
+    }
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      mediaRecorderRef.current.onstop = () => {};
+      mediaRecorderRef.current?.stop();
+    }
+    clearInterval(recordingTimerRef.current);
+    setRecording(false); setRecordingSecs(0);
+  }
+
+  // Location sharing
+  async function shareLocation() {
+    if (!navigator.geolocation) return alert('Geolocalización no disponible en este navegador.');
+    setSendingLocation(true);
+    navigator.geolocation.getCurrentPosition(async pos => {
+      const { latitude, longitude } = pos.coords;
+      await apiFetch('/api/messages/send-location', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_id: parseInt(id), latitude, longitude }),
+      });
+      setSendingLocation(false); load();
+    }, err => { setSendingLocation(false); alert('No se pudo obtener ubicación: ' + err.message); });
+  }
+
+  // Check WhatsApp number
+  async function checkWhatsApp() {
+    if (!data?.phone) return;
+    setNumberStatus('checking');
+    const r = await apiFetch(`/api/wa/check-number?phone=${encodeURIComponent(data.phone)}`);
+    const d = await r?.json();
+    setNumberStatus(d?.numberExists != null ? { exists: d.numberExists, phone: data.phone } : { exists: false, phone: data.phone });
+    setTimeout(() => setNumberStatus(null), 6000);
+  }
+
   const allMessages = useMemo(() => [...(data?.messages || [])].reverse(), [data?.messages]);
   const filteredMessages = useMemo(() => {
     if (!searchQuery.trim()) return allMessages;
@@ -310,8 +409,20 @@ export default function ContactDetail() {
         <button onClick={() => setShowInfo(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{data.name}</p>
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-gray-500 truncate">{data.phone}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={e => { e.stopPropagation(); checkWhatsApp(); }} title="Verificar WhatsApp"
+                className={`text-xs flex items-center gap-1 transition-colors ${
+                  numberStatus === 'checking' ? 'text-gray-500' :
+                  numberStatus?.exists ? 'text-green-400' :
+                  numberStatus?.exists === false ? 'text-red-400' :
+                  'text-gray-500 hover:text-green-400'
+                }`}>
+                <Phone size={10} />
+                <span className="truncate max-w-[110px]">{data.phone}</span>
+                {numberStatus === 'checking' && <span className="text-[10px]">…</span>}
+                {numberStatus?.exists === true && <CheckCircle size={9} />}
+                {numberStatus?.exists === false && <X size={9} />}
+              </button>
               {stage && <span className="text-[10px] text-gray-600 flex items-center gap-0.5"><GitBranch size={9} />{stage.label}</span>}
             </div>
           </div>
@@ -598,11 +709,29 @@ export default function ContactDetail() {
         )}
         {attachment && (
           <div className="px-3 pt-2.5 flex items-center gap-2">
-            {attachment.preview
-              ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
-              : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">{attachment.type?.startsWith('audio/') ? <Music size={14} /> : <File size={14} />}</div>}
-            <div className="flex-1 min-w-0"><p className="text-xs text-white truncate">{attachment.name}</p><p className="text-xs text-gray-500">{formatSize(attachment.size)}</p></div>
+            {attachment.isVoice
+              ? <div className="w-10 h-10 rounded-full bg-green-500/10 border border-green-700 flex items-center justify-center shrink-0"><Mic size={14} className="text-green-400" /></div>
+              : attachment.preview
+                ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
+                : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">{attachment.type?.startsWith('audio/') ? <Music size={14} /> : <File size={14} />}</div>}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-white truncate">{attachment.isVoice ? 'Nota de voz' : attachment.name}</p>
+              <p className="text-xs text-gray-500">{formatSize(attachment.size)}</p>
+            </div>
             <button onClick={() => setAttachment(null)} className="p-1 text-gray-500 hover:text-white"><X size={15} /></button>
+          </div>
+        )}
+        {/* Recording indicator */}
+        {recording && (
+          <div className="px-3 pt-2 flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-1 bg-red-900/20 border border-red-800 rounded-xl px-3 py-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              <span className="text-xs text-red-400 font-mono">{String(Math.floor(recordingSecs/60)).padStart(2,'0')}:{String(recordingSecs%60).padStart(2,'0')}</span>
+              <span className="text-xs text-red-300 flex-1">Grabando nota de voz…</span>
+            </div>
+            <button type="button" onClick={cancelRecording} className="p-2 text-gray-500 hover:text-red-400">
+              <X size={16} />
+            </button>
           </div>
         )}
         <form onSubmit={sendMsg} className="px-3 py-3 flex gap-2 items-end">
@@ -615,10 +744,23 @@ export default function ContactDetail() {
               <Zap size={18} />
             </button>
           )}
-          <textarea ref={inputRef} value={message} onChange={e => setMessage(e.target.value)}
+          <button type="button" onClick={shareLocation} disabled={sendingLocation}
+            title="Compartir ubicación"
+            className="p-2.5 text-gray-500 hover:text-blue-400 hover:bg-gray-800 rounded-full transition-colors shrink-0 disabled:opacity-40">
+            {sendingLocation ? <div className="w-4 h-4 border border-blue-400 border-t-transparent rounded-full animate-spin" /> : <MapPin size={18} />}
+          </button>
+          {!attachment && !message.trim() ? (
+            <button type="button" onClick={toggleRecording}
+              title={recording ? 'Detener grabación' : 'Grabar nota de voz'}
+              className={`p-2.5 rounded-full transition-colors shrink-0 ${recording ? 'text-red-400 bg-red-400/10' : 'text-gray-500 hover:text-green-400 hover:bg-gray-800'}`}>
+              {recording ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+          ) : null}
+          <textarea ref={inputRef} value={message} onChange={e => handleTypingInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); } }}
-            placeholder={attachment ? 'Descripción (opcional)...' : replyTo ? 'Responder...' : 'Mensaje...'}
+            placeholder={attachment?.isVoice ? 'Nota de voz lista para enviar' : attachment ? 'Descripción (opcional)...' : replyTo ? 'Responder...' : 'Mensaje...'}
             rows={1}
+            readOnly={!!attachment?.isVoice}
             className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500 resize-none max-h-32 leading-5"
             style={{ minHeight: '42px' }}
             onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'; }}

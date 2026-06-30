@@ -3,7 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('../db');
-const { sendText, sendFile, downloadMedia, toWaId } = require('../whatsapp');
+const { sendText, sendFile, sendVoice, sendLocation, sendSeen, sendTyping, downloadMedia, toWaId } = require('../whatsapp');
 
 const uploadsDir = path.join(__dirname, '../../../data/uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -99,6 +99,81 @@ router.post('/send-file', async (req, res) => {
   `).run(contact_id, content, wa_message_id, status, localUrl, mimetype, filename);
 
   res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
+});
+
+// POST /messages/send-voice — record + send voice note
+router.post('/send-voice', async (req, res) => {
+  const db = getDb();
+  const { contact_id, data, mimetype } = req.body;
+  if (!contact_id || !data || !mimetype) return res.status(400).json({ error: 'contact_id, data, mimetype required' });
+  const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+  const ext = mimetype.includes('ogg') ? '.ogg' : mimetype.includes('mp4') ? '.m4a' : '.ogg';
+  const filename = `voice_${Date.now()}${ext}`;
+  const buf = Buffer.from(data, 'base64');
+  const fs2 = require('fs');
+  fs2.writeFileSync(path.join(uploadsDir, filename), buf);
+  const localUrl = `/uploads/${filename}`;
+  const waUrl = `${BACKEND_INTERNAL}/uploads/${filename}`;
+  const chatId = contact.wa_chat_id || toWaId(contact.phone);
+
+  let wa_message_id = null, status = 'sent';
+  try {
+    const result = await sendVoice(chatId, { url: waUrl, filename, mimetype });
+    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
+  } catch (e) { status = 'failed'; console.error('[messages] sendVoice error:', e.response?.data || e.message); }
+
+  const row = db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename) VALUES (?, 'outbound', '[Audio]', ?, ?, ?, ?, ?)`)
+    .run(contact_id, wa_message_id, status, localUrl, mimetype, filename);
+  res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
+});
+
+// POST /messages/send-location — share GPS coordinates
+router.post('/send-location', async (req, res) => {
+  const db = getDb();
+  const { contact_id, latitude, longitude, title } = req.body;
+  if (!contact_id || latitude == null || longitude == null) return res.status(400).json({ error: 'contact_id, latitude, longitude required' });
+  const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
+
+  const chatId = contact.wa_chat_id || toWaId(contact.phone);
+  const label = title || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  let wa_message_id = null, status = 'sent';
+  try {
+    const result = await sendLocation(chatId, latitude, longitude, title || '');
+    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
+  } catch (e) { status = 'failed'; console.error('[messages] sendLocation error:', e.response?.data || e.message); }
+
+  const row = db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status) VALUES (?, 'outbound', ?, ?, ?)`)
+    .run(contact_id, `📍 ${label}`, wa_message_id, status);
+  res.json({ id: row.lastInsertRowid, status, wa_message_id });
+});
+
+// POST /messages/send-seen — mark chat as read in WhatsApp
+router.post('/send-seen', async (req, res) => {
+  const db = getDb();
+  const { contact_id } = req.body;
+  if (!contact_id) return res.status(400).json({ error: 'contact_id required' });
+  const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
+  try {
+    await sendSeen(contact.phone, contact.wa_chat_id);
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, reason: e.message }); }
+});
+
+// POST /messages/typing — send typing indicator
+router.post('/typing', async (req, res) => {
+  const db = getDb();
+  const { contact_id, active } = req.body;
+  if (!contact_id) return res.status(400).json({ error: 'contact_id required' });
+  const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
+  if (!contact) return res.status(404).json({ error: 'Contact not found' });
+  try {
+    await sendTyping(contact.phone, contact.wa_chat_id, !!active);
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false, reason: e.message }); }
 });
 
 // POST /messages/broadcast — bulk send (immediate or scheduled)

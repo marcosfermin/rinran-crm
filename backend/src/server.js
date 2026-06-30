@@ -189,6 +189,17 @@ app.get('/api/wa/sessions/:name/qr', auth, async (req, res) => {
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
 
+// Check if a phone number is registered on WhatsApp
+app.get('/api/wa/check-number', auth, async (req, res) => {
+  const { phone } = req.query;
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  try {
+    const { checkNumber } = require('./whatsapp');
+    const result = await checkNumber(phone);
+    res.json(result);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+
 // Configure webhook on an existing session
 app.post('/api/wa/sessions/:name/webhook', auth, async (req, res) => {
   const webhookUrl = req.body.webhook_url || SELF_WEBHOOK;

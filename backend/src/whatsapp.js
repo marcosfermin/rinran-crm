@@ -173,14 +173,62 @@ async function sendFile(chatId, fileObj) {
   const session = await getSession();
   const res = await axios.post(`${base()}/api/sendFile`, {
     chatId,
-    file: {
-      url: fileObj.url,
-      filename: fileObj.filename,
-      mimetype: fileObj.mimetype,
-    },
+    file: { url: fileObj.url, filename: fileObj.filename, mimetype: fileObj.mimetype },
     session: session?.name || 'default',
     caption: fileObj.caption || undefined,
   }, { headers: headers(), timeout: 60000 });
+  return res.data;
+}
+
+// Send a voice note via WAHA (shows as voice player in WhatsApp, not file attachment)
+async function sendVoice(chatId, fileObj) {
+  const session = await getSession();
+  const res = await axios.post(`${base()}/api/sendVoice`, {
+    chatId,
+    file: { url: fileObj.url, filename: fileObj.filename, mimetype: fileObj.mimetype },
+    session: session?.name || 'default',
+  }, { headers: headers(), timeout: 60000 });
+  return res.data;
+}
+
+// Send GPS location
+async function sendLocation(chatId, latitude, longitude, title) {
+  const session = await getSession();
+  const res = await axios.post(`${base()}/api/sendLocation`, {
+    chatId, latitude, longitude, title: title || '',
+    session: session?.name || 'default',
+  }, { headers: headers(), timeout: 10000 });
+  return res.data;
+}
+
+// Mark chat as read (sends seen receipt to contact)
+async function sendSeen(phone, waChatId) {
+  const session = await getSession();
+  const chatId = waChatId || toWaId(phone);
+  await axios.post(`${base()}/api/sendSeen`, {
+    chatId, session: session?.name || 'default',
+  }, { headers: headers(), timeout: 10000 });
+}
+
+// Start or stop typing indicator
+async function sendTyping(phone, waChatId, active) {
+  const session = await getSession();
+  const chatId = waChatId || toWaId(phone);
+  const endpoint = active ? 'startTyping' : 'stopTyping';
+  await axios.post(`${base()}/api/${endpoint}`, {
+    chatId, session: session?.name || 'default',
+  }, { headers: headers(), timeout: 10000 });
+}
+
+// Check if a phone number has WhatsApp
+async function checkNumber(phone) {
+  const session = await getSession();
+  const sessionKey = session?.name || 'default';
+  const normalized = phone.replace(/^\+/, '').replace(/\s+/g, '');
+  const res = await axios.get(`${base()}/api/contacts/check-exists`, {
+    headers: headers(), timeout: 10000,
+    params: { phone: normalized, session: sessionKey },
+  });
   return res.data;
 }
 
@@ -268,4 +316,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, sendFile, downloadMedia, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };
+module.exports = { sendText, sendFile, sendVoice, sendLocation, sendSeen, sendTyping, checkNumber, downloadMedia, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };

@@ -153,6 +153,22 @@ async function getChatMessages(chatId, limit = 500) {
   }
 }
 
+// Send a file via WAHA
+async function sendFile(chatId, fileObj) {
+  const session = await getSession();
+  const res = await axios.post(`${base()}/api/sendFile`, {
+    chatId,
+    file: {
+      url: fileObj.url,
+      filename: fileObj.filename,
+      mimetype: fileObj.mimetype,
+    },
+    session: session?.name || 'default',
+    caption: fileObj.caption || undefined,
+  }, { headers: headers(), timeout: 60000 });
+  return res.data;
+}
+
 // Get all WhatsApp labels
 async function getLabels() {
   try {
@@ -237,4 +253,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };
+module.exports = { sendText, sendFile, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook, getLabels, getLabelChats, getChatLabels, setChatLabels };

@@ -1,13 +1,49 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function MediaContent({ msg }) {
+  const url = msg.media_url;
+  if (!url) return null;
+  const type = msg.media_type || '';
+  const filename = msg.media_filename || 'archivo';
+
+  if (type.startsWith('image/')) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block mb-1">
+        <img src={url} alt={filename} className="rounded-lg max-w-full max-h-60 object-cover" />
+      </a>
+    );
+  }
+  if (type.startsWith('video/')) {
+    return <video controls src={url} className="rounded-lg max-w-full mb-1" style={{ maxHeight: 240 }} />;
+  }
+  if (type.startsWith('audio/')) {
+    return <audio controls src={url} className="w-full mb-1" />;
+  }
+  return (
+    <a href={url} download={filename}
+      className="flex items-center gap-2 mb-1 bg-white/10 rounded-lg px-3 py-2 hover:bg-white/20 transition-colors">
+      <File size={18} className="shrink-0" />
+      <span className="text-sm truncate flex-1">{filename}</span>
+      <Download size={14} className="shrink-0 opacity-70" />
+    </a>
+  );
+}
 
 function MessageBubble({ msg }) {
   const isOut = msg.direction === 'outbound';
   const time = new Date(msg.sent_at.replace(' ', 'T') + 'Z')
     .toLocaleString('es', { hour: '2-digit', minute: '2-digit' });
+  const showText = msg.content && msg.content !== msg.media_filename;
   return (
     <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
@@ -15,13 +51,20 @@ function MessageBubble({ msg }) {
           ? 'bg-green-600 text-white rounded-br-sm'
           : 'bg-gray-800 text-gray-100 rounded-bl-sm'
       }`}>
-        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        {msg.media_url && <MediaContent msg={msg} />}
+        {showText && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
         <p className={`text-[11px] mt-1 text-right ${isOut ? 'text-green-200' : 'text-gray-500'}`}>
           {time}{isOut && msg.status === 'failed' ? ' · ✗' : isOut ? ' ✓' : ''}
         </p>
       </div>
     </div>
   );
+}
+
+function AttachIcon({ type }) {
+  if (type?.startsWith('image/')) return <File size={14} />;
+  if (type?.startsWith('audio/')) return <Music size={14} />;
+  return <File size={14} />;
 }
 
 export default function ContactDetail() {
@@ -36,9 +79,11 @@ export default function ContactDetail() {
   const [showInfo, setShowInfo] = useState(false);
   const [showLightbox, setShowLightbox] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [attachment, setAttachment] = useState(null); // { name, type, size, data, preview }
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const photoInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   function load() {
     apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => {
@@ -54,7 +99,6 @@ export default function ContactDetail() {
     apiFetch(`/api/inbox/${id}/read`, { method: 'PATCH' }).catch(() => {});
   }, [id]);
 
-  // Poll for new messages every 6 seconds
   useEffect(() => {
     const t = setInterval(() => {
       apiFetch(`/api/contacts/${id}`).then(r => r?.json()).then(d => d && setData(d));
@@ -67,17 +111,52 @@ export default function ContactDetail() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [data?.messages?.length]);
 
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      setAttachment({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: dataUrl.split(',')[1],
+        preview: file.type.startsWith('image/') ? dataUrl : null,
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   async function sendMsg(e) {
     e.preventDefault();
-    if (!message.trim() || sending) return;
-    const text = message.trim();
-    setMessage('');
+    if ((!message.trim() && !attachment) || sending) return;
     setSending(true);
-    await apiFetch('/api/messages/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact_id: parseInt(id), message: text }),
-    });
+
+    if (attachment) {
+      await apiFetch('/api/messages/send-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contact_id: parseInt(id),
+          data: attachment.data,
+          filename: attachment.name,
+          mimetype: attachment.type,
+          caption: message.trim() || undefined,
+        }),
+      });
+      setAttachment(null);
+      setMessage('');
+    } else {
+      await apiFetch('/api/messages/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_id: parseInt(id), message: message.trim() }),
+      });
+      setMessage('');
+    }
+
     setSending(false);
     load();
     inputRef.current?.focus();
@@ -266,35 +345,75 @@ export default function ContactDetail() {
         <PhotoLightbox contact={data} onClose={() => setShowLightbox(false)} />
       )}
 
-      {/* Input */}
-      <form
-        onSubmit={sendMsg}
-        className="bg-gray-900 border-t border-gray-800 px-3 py-3 flex gap-2 items-end shrink-0"
-      >
-        <textarea
-          ref={inputRef}
-          value={message}
-          onChange={e => setMessage(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); }
-          }}
-          placeholder="Mensaje..."
-          rows={1}
-          className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500 resize-none max-h-32 leading-5"
-          style={{ minHeight: '42px' }}
-          onInput={e => {
-            e.target.style.height = 'auto';
-            e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
-          }}
-        />
-        <button
-          type="submit"
-          disabled={sending || !message.trim()}
-          className="bg-green-500 hover:bg-green-400 active:bg-green-600 disabled:opacity-40 text-white p-2.5 rounded-full transition-colors shrink-0"
-        >
-          <Send size={18} />
-        </button>
-      </form>
+      {/* Input area */}
+      <div className="bg-gray-900 border-t border-gray-800 shrink-0">
+        {/* Attachment preview */}
+        {attachment && (
+          <div className="px-3 pt-2.5 flex items-center gap-2">
+            {attachment.preview
+              ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
+              : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">
+                  <AttachIcon type={attachment.type} />
+                </div>
+            }
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-white truncate">{attachment.name}</p>
+              <p className="text-xs text-gray-500">{formatSize(attachment.size)}</p>
+            </div>
+            <button
+              onClick={() => setAttachment(null)}
+              className="p-1 text-gray-500 hover:text-white"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
+        <form onSubmit={sendMsg} className="px-3 py-3 flex gap-2 items-end">
+          {/* File attach button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2.5 text-gray-500 hover:text-white hover:bg-gray-800 rounded-full transition-colors shrink-0"
+            title="Adjuntar archivo"
+          >
+            <Paperclip size={18} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="*/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+
+          <textarea
+            ref={inputRef}
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(e); }
+            }}
+            placeholder={attachment ? 'Añadir descripción (opcional)...' : 'Mensaje...'}
+            rows={1}
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-green-500 resize-none max-h-32 leading-5"
+            style={{ minHeight: '42px' }}
+            onInput={e => {
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px';
+            }}
+          />
+          <button
+            type="submit"
+            disabled={sending || (!message.trim() && !attachment)}
+            className="bg-green-500 hover:bg-green-400 active:bg-green-600 disabled:opacity-40 text-white p-2.5 rounded-full transition-colors shrink-0"
+          >
+            {sending
+              ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              : <Send size={18} />}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

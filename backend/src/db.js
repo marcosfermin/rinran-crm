@@ -83,6 +83,12 @@ function initSchema() {
   try { db.exec('ALTER TABLE contacts ADD COLUMN wa_chat_id TEXT'); } catch {}
   try { db.exec('ALTER TABLE contacts ADD COLUMN profile_pic_url TEXT'); } catch {}
   try { db.exec('ALTER TABLE categories ADD COLUMN wa_label_id TEXT'); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN media_url TEXT'); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN media_type TEXT'); } catch {}
+  try { db.exec('ALTER TABLE messages ADD COLUMN media_filename TEXT'); } catch {}
+  try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_url TEXT'); } catch {}
+  try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_type TEXT'); } catch {}
+  try { db.exec('ALTER TABLE broadcasts ADD COLUMN media_filename TEXT'); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

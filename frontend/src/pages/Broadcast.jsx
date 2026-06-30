@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react';
-import { Send, Users, CheckCircle, Clock } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Send, Users, CheckCircle, Clock, Paperclip, X, File, Image } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
 
 export default function Broadcast() {
   const [categories, setCategories] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
   const [form, setForm] = useState({ name: '', message: '', category_id: '' });
+  const [attachFile, setAttachFile] = useState(null); // { name, type, size, data, preview }
   const [preview, setPreview] = useState(null);
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
@@ -29,23 +37,53 @@ export default function Broadcast() {
 
   useEffect(() => { previewCount(); }, [form.category_id]);
 
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      setAttachFile({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: dataUrl.split(',')[1],
+        preview: file.type.startsWith('image/') ? dataUrl : null,
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   async function send(e) {
     e.preventDefault();
-    if (!form.message.trim()) return;
+    if (!form.message.trim() && !attachFile) return;
     if (!confirm(`¿Enviar a ${preview} contactos?`)) return;
     setSending(true);
+
+    const body = {
+      name: form.name || 'Broadcast',
+      message: form.message,
+      category_id: form.category_id || null,
+    };
+    if (attachFile) {
+      body.file = {
+        data: attachFile.data,
+        filename: attachFile.name,
+        mimetype: attachFile.type,
+        caption: form.message || undefined,
+      };
+    }
+
     const r = await apiFetch('/api/messages/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name || 'Broadcast',
-        message: form.message,
-        category_id: form.category_id || null,
-      }),
+      body: JSON.stringify(body),
     });
     const res = await r?.json();
     if (res) setSuccess(`Broadcast iniciado (ID ${res.broadcast_id}) — ${res.total} destinatarios`);
     setForm({ name: '', message: '', category_id: '' });
+    setAttachFile(null);
     setSending(false);
     setTimeout(() => { setSuccess(null); loadBroadcasts(); }, 3000);
   }
@@ -90,16 +128,57 @@ export default function Broadcast() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Mensaje *</label>
+              <label className="text-xs text-gray-400 mb-1 block">Mensaje {attachFile ? '(pie de foto / descripción)' : '*'}</label>
               <textarea
-                required
+                required={!attachFile}
                 value={form.message}
                 onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
-                rows={5}
-                placeholder="Hola! Te escribimos desde Rinran para informarte..."
+                rows={4}
+                placeholder={attachFile ? 'Descripción opcional del archivo...' : 'Hola! Te escribimos desde Rinran para informarte...'}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500 resize-none"
               />
               <p className="text-xs text-gray-600 mt-1">{form.message.length} caracteres</p>
+            </div>
+
+            {/* File attachment */}
+            <div>
+              {attachFile ? (
+                <div className="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2.5">
+                  {attachFile.preview
+                    ? <img src={attachFile.preview} className="w-10 h-10 rounded object-cover shrink-0" />
+                    : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">
+                        <File size={18} className="text-gray-400" />
+                      </div>
+                  }
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{attachFile.name}</p>
+                    <p className="text-xs text-gray-500">{formatSize(attachFile.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAttachFile(null)}
+                    className="p-1 text-gray-500 hover:text-white"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 text-sm text-gray-400 hover:text-white border border-dashed border-gray-700 hover:border-gray-500 rounded-lg px-4 py-2.5 w-full transition-colors"
+                >
+                  <Paperclip size={15} />
+                  Adjuntar archivo (imagen, PDF, video, audio…)
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="*/*"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
             </div>
 
             {preview !== null && (
@@ -111,7 +190,7 @@ export default function Broadcast() {
 
             <button
               type="submit"
-              disabled={sending || !form.message.trim() || preview === 0}
+              disabled={sending || (!form.message.trim() && !attachFile) || preview === 0}
               className="w-full flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 disabled:opacity-40 text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
             >
               <Send size={15} />
@@ -133,7 +212,13 @@ export default function Broadcast() {
                   </div>
                   <div className="flex items-center gap-1">{statusIcon(b.status)}<span className="text-xs text-gray-400 ml-1">{b.status}</span></div>
                 </div>
-                <p className="text-xs text-gray-400 truncate mb-2">{b.message}</p>
+                {b.media_filename && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-1.5">
+                    {b.media_type?.startsWith('image/') ? <Image size={12} /> : <File size={12} />}
+                    <span className="truncate">{b.media_filename}</span>
+                  </div>
+                )}
+                {b.message && <p className="text-xs text-gray-400 truncate mb-2">{b.message}</p>}
                 <div className="flex gap-4 text-xs">
                   <span className="text-gray-500">Total: <span className="text-gray-300">{b.total_recipients}</span></span>
                   <span className="text-green-400">Enviados: {b.sent_count}</span>

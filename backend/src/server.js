@@ -126,23 +126,31 @@ app.get('/api/wa/sessions/:name', auth, async (req, res) => {
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
 
-// Create session (optionally auto-configure webhook)
+// Create session (optionally auto-configure webhook); falls back to PUT if already exists
 app.post('/api/wa/sessions', auth, async (req, res) => {
+  const { name, auto_webhook = true, ...rest } = req.body;
+  const config = {
+    noweb: { store: { enabled: true, fullSync: true } },
+    ...(auto_webhook ? {
+      webhooks: [{ url: SELF_WEBHOOK, events: ['message', 'message.ack', 'session.status'], enabled: true }]
+    } : {}),
+    ...rest.config,
+  };
   try {
-    const { name, auto_webhook = true, ...rest } = req.body;
-    const body = {
-      name,
-      config: {
-        noweb: { store: { enabled: true, fullSync: true } },
-        ...(auto_webhook ? {
-          webhooks: [{ url: SELF_WEBHOOK, events: ['message', 'message.ack', 'session.status'], enabled: true }]
-        } : {}),
-        ...rest.config,
-      },
-    };
-    const r = await axios.post(`${WAHA_URL}/api/sessions`, body, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
+    const r = await axios.post(`${WAHA_URL}/api/sessions`, { name, config }, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
     res.status(r.status).json(r.data);
-  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+  } catch (e) {
+    // WAHA returns 422 when session already exists — update config via PUT instead
+    const status = e.response?.status;
+    const msg = JSON.stringify(e.response?.data || '');
+    if (status === 422 && msg.includes('already exists')) {
+      try {
+        const r2 = await axios.put(`${WAHA_URL}/api/sessions/${name}`, { config }, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
+        return res.status(r2.status).json(r2.data);
+      } catch (e2) { return res.status(e2.response?.status || 500).json(e2.response?.data || { error: e2.message }); }
+    }
+    res.status(status || 500).json(e.response?.data || { error: e.message });
+  }
 });
 
 // Update session config (webhook, events, etc.)

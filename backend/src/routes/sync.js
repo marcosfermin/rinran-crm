@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact } = require('../whatsapp');
+const { getAllChats, getChatMessages, fromWaId, configureWebhook, resolveLid, getContact, getProfilePic } = require('../whatsapp');
 
 const MEDIA_LABELS = {
   image: '[Foto]',
@@ -88,6 +88,12 @@ async function runSync() {
           state.imported.contacts++;
         } else if (!contact.wa_chat_id) {
           db.prepare('UPDATE contacts SET wa_chat_id = ? WHERE id = ?').run(chatId, contact.id);
+        }
+
+        // Fetch profile picture (refresh on every sync so URLs don't expire)
+        const picUrl = await getProfilePic(chatId);
+        if (picUrl) {
+          db.prepare('UPDATE contacts SET profile_pic_url = ? WHERE id = ?').run(picUrl, contact.id);
         }
 
         const messages = await getChatMessages(chatId);

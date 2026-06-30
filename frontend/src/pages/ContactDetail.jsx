@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send, Edit2, Check, X, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
+import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
 function MessageBubble({ msg }) {
   const isOut = msg.direction === 'outbound';
@@ -33,6 +34,7 @@ export default function ContactDetail() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [showInfo, setShowInfo] = useState(false);
+  const [showLightbox, setShowLightbox] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -109,11 +111,16 @@ export default function ContactDetail() {
           <ArrowLeft size={20} />
         </button>
 
+        <Avatar
+          contact={data}
+          size="sm"
+          onClick={() => setShowLightbox(true)}
+        />
+
         <button
           onClick={() => setShowInfo(v => !v)}
-          className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
+          className="flex items-center gap-2 flex-1 min-w-0 text-left"
         >
-          <div className="text-2xl leading-none">{data.country_flag || '👤'}</div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white truncate">{data.name}</p>
             <p className="text-xs text-gray-500 truncate">{data.phone}</p>
@@ -221,6 +228,10 @@ export default function ContactDetail() {
         {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
         <div ref={messagesEndRef} />
       </div>
+
+      {showLightbox && (
+        <PhotoLightbox contact={data} onClose={() => setShowLightbox(false)} />
+      )}
 
       {/* Input */}
       <form

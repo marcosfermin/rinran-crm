@@ -79,8 +79,9 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_messages_contact ON messages(contact_id);
   `);
 
-  // Add wa_chat_id column if missing (migration for existing DBs)
+  // Migrations for existing DBs
   try { db.exec('ALTER TABLE contacts ADD COLUMN wa_chat_id TEXT'); } catch {}
+  try { db.exec('ALTER TABLE contacts ADD COLUMN profile_pic_url TEXT'); } catch {}
 
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {

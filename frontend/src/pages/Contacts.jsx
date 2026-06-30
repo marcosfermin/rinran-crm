@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Trash2, ChevronLeft, ChevronRight, MessageCircle } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
+import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
 export default function Contacts() {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export default function Contacts() {
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', category_id: '', notes: '' });
+  const [lightbox, setLightbox] = useState(null);
   const limit = 20;
 
   const load = useCallback(() => {
@@ -97,7 +99,7 @@ export default function Contacts() {
             onClick={() => navigate(`/contacts/${c.id}`)}
             className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer active:bg-gray-800"
           >
-            <div className="text-2xl shrink-0">{c.country_flag || '🏳️'}</div>
+            <Avatar contact={c} size="sm" onClick={e => { e.stopPropagation(); setLightbox(c); }} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{c.name}</p>
               <p className="text-xs text-gray-500 font-mono truncate">{c.phone}</p>
@@ -149,7 +151,12 @@ export default function Contacts() {
                 onClick={() => navigate(`/contacts/${c.id}`)}
                 className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors"
               >
-                <td className="px-4 py-3 font-medium text-white">{c.name}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar contact={c} size="xs" onClick={e => { e.stopPropagation(); setLightbox(c); }} />
+                    <span className="font-medium text-white">{c.name}</span>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-gray-400 font-mono">{c.phone}</td>
                 <td className="px-4 py-3">
                   <span title={c.country_name} className="text-xl">{c.country_flag || '🏳️'}</span>
@@ -205,6 +212,8 @@ export default function Contacts() {
       )}
 
       {/* Add Modal */}
+      <PhotoLightbox contact={lightbox} onClose={() => setLightbox(null)} />
+
       {showAdd && (
         <div className="fixed inset-0 bg-black/70 flex items-end md:items-center justify-center z-50 p-0 md:p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-t-2xl md:rounded-xl p-5 w-full md:max-w-md">

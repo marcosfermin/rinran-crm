@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, MessageSquare, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
+import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -47,6 +48,7 @@ export default function InboxPage() {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState('');
+  const [lightbox, setLightbox] = useState(null);
   const { status: syncStatus, startSync } = useSyncStatus();
 
   const load = useCallback(() => {
@@ -137,9 +139,11 @@ export default function InboxPage() {
             className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-gray-800/50 active:bg-gray-800 transition-colors text-left"
           >
             <div className="relative shrink-0">
-              <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center text-2xl">
-                {c.country_flag || '👤'}
-              </div>
+              <Avatar
+                contact={c}
+                size="md"
+                onClick={e => { e.stopPropagation(); setLightbox(c); }}
+              />
               {c.unread_count > 0 && (
                 <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-950" />
               )}
@@ -175,6 +179,8 @@ export default function InboxPage() {
           </button>
         ))}
       </div>
+
+      <PhotoLightbox contact={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }

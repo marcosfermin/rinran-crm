@@ -96,6 +96,24 @@ async function resolveLid(chatId) {
   }
 }
 
+// Fetch a contact's WhatsApp profile picture URL
+async function getProfilePic(chatId) {
+  try {
+    const session = await getSession();
+    if (!session) return null;
+    const sessionKey = session.name || session.id;
+    const res = await axios.get(
+      `${base()}/api/${sessionKey}/contacts/profile-picture`,
+      { headers: headers(), timeout: 10000, params: { contactId: chatId } }
+    );
+    const d = res.data;
+    if (typeof d === 'string' && d.startsWith('http')) return d;
+    return d?.eurl || d?.img || d?.url || null;
+  } catch {
+    return null;
+  }
+}
+
 // Get all chats — WAHA Community: GET /api/{session}/chats
 async function getAllChats() {
   try {
@@ -155,4 +173,4 @@ async function configureWebhook(webhookUrl) {
   }
 }
 
-module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };
+module.exports = { sendText, getStatus, toWaId, fromWaId, getContact, resolveLid, getProfilePic, getAllChats, getChatMessages, getSession, resetSession, configureWebhook };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Send, Users, CheckCircle, Clock, Paperclip, X, File, Image, ChevronDown, BarChart2, Calendar } from 'lucide-react';
+import { Send, Users, CheckCircle, Clock, Paperclip, X, File, Image, ChevronDown, BarChart2, Calendar, Copy } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 function DeliveryBar({ total, sent, delivered, read }) {
@@ -47,6 +47,7 @@ export default function Broadcast() {
   const [reschedulingId, setReschedulingId] = useState(null);
   const [rescheduleAt, setRescheduleAt] = useState('');
   const fileInputRef = useRef(null);
+  const formRef = useRef(null);
 
   useEffect(() => {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
@@ -146,6 +147,39 @@ export default function Broadcast() {
     }
   }
 
+  async function reuseBroadcast(b) {
+    setForm({
+      name: b.name ? `${b.name} (copia)` : 'Broadcast',
+      message: b.message || '',
+      category_id: b.category_id || '',
+      pipeline_stage: b.pipeline_stage || '',
+      tag_id: b.tag_id || '',
+      scheduled_at: '',
+    });
+    setAttachFile(null);
+    if (b.media_url) {
+      try {
+        const res = await fetch(b.media_url);
+        const blob = await res.blob();
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const dataUrl = ev.target.result;
+          setAttachFile({
+            name: b.media_filename || 'archivo',
+            type: b.media_type || blob.type || 'application/octet-stream',
+            size: blob.size,
+            data: dataUrl.split(',')[1],
+            preview: (b.media_type || '').startsWith('image/') ? dataUrl : null,
+          });
+        };
+        reader.readAsDataURL(blob);
+      } catch {
+        // If file fetch fails, just skip the attachment
+      }
+    }
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function loadRecipients(broadcastId) {
     if (recipients[broadcastId]) { setExpandedBroadcast(expandedBroadcast === broadcastId ? null : broadcastId); return; }
     const r = await apiFetch(`/api/messages/broadcasts/${broadcastId}/recipients`);
@@ -171,7 +205,7 @@ export default function Broadcast() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
         {/* Compose */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div ref={formRef} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <h2 className="text-sm font-semibold text-gray-300 mb-4">Nuevo broadcast</h2>
           {success && (
             <div className="mb-4 px-4 py-3 bg-green-900/30 border border-green-800 rounded-lg text-green-400 text-sm">{success}</div>
@@ -317,9 +351,14 @@ export default function Broadcast() {
                   <DeliveryBar total={b.total_recipients} sent={b.sent_count} delivered={b.delivered_count} read={b.read_count} />
                 </button>
 
-                {b.status === 'scheduled' && (
-                  <div className="border-t border-gray-700 px-4 py-3 flex items-center gap-2 bg-yellow-950/20">
-                    {reschedulingId === b.id ? (
+                <div className="border-t border-gray-700 px-4 py-2 flex items-center gap-2">
+                  <button
+                    onClick={e => { e.stopPropagation(); reuseBroadcast(b); }}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:border-blue-600 hover:text-blue-400 transition-colors">
+                    <Copy size={11} /> Reusar
+                  </button>
+                  {b.status === 'scheduled' && (
+                    reschedulingId === b.id ? (
                       <>
                         <input type="datetime-local" value={rescheduleAt} onChange={e => setRescheduleAt(e.target.value)}
                           className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
@@ -338,9 +377,9 @@ export default function Broadcast() {
                           Cancelar
                         </button>
                       </>
-                    )}
-                  </div>
-                )}
+                    )
+                  )}
+                </div>
                 {expandedBroadcast === b.id && recipients[b.id] && (
                   <div className="border-t border-gray-700 max-h-48 overflow-y-auto">
                     <div className="p-2 flex items-center gap-1 text-xs text-gray-500 border-b border-gray-700">

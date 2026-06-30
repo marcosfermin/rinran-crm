@@ -33,7 +33,9 @@ router.post('/', async (req, res) => {
   });
 });
 
-// Resolve any chatId (including @lid) to a clean phone string like "+19296507660"
+// Resolve any chatId (including @lid) to a clean phone string like "+19296507660".
+// Returns null for @lid contacts that cannot be resolved to a real number,
+// so callers can skip them instead of creating contacts with unusable LID numbers.
 async function resolvePhone(chatId) {
   if (chatId.endsWith('@lid')) {
     const real = await resolveLid(chatId);
@@ -42,6 +44,7 @@ async function resolvePhone(chatId) {
     const info = await getContact(chatId);
     if (info?.number) return '+' + info.number;
     if (info?.id?.user) return '+' + info.id.user;
+    return null; // unresolvable LID — skip this chat
   }
   return fromWaId(chatId);
 }
@@ -108,6 +111,7 @@ async function runSync() {
         if (!chatId) continue;
 
         const phone = await resolvePhone(chatId);
+        if (!phone) { console.log(`[sync] Skipping unresolvable LID: ${chatId}`); continue; }
         const parsed = parsePhone(phone);
 
         // Prefer chat.name; fall back to pushName from contacts API; last resort: phone

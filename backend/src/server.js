@@ -101,17 +101,16 @@ const SELF_WEBHOOK = process.env.WEBHOOK_URL || 'http://backend:4000/webhook';
 // WAHA health/version
 app.get('/api/wa/info', auth, async (req, res) => {
   try {
-    const [health, version] = await Promise.allSettled([
-      axios.get(`${WAHA_URL}/api/health`, { headers: wahaHdr(), timeout: 5000 }),
-      axios.get(`${WAHA_URL}/api/version`, { headers: wahaHdr(), timeout: 5000 }),
-    ]);
+    const r = await axios.get(`${WAHA_URL}/api/version`, { headers: wahaHdr(), timeout: 5000 });
     res.json({
       url: WAHA_URL,
-      health: health.status === 'fulfilled' ? health.value.data : null,
-      version: version.status === 'fulfilled' ? version.value.data : null,
+      health: r.data,   // non-null means server is reachable
+      version: r.data,
       webhook_url: SELF_WEBHOOK,
     });
-  } catch (e) { res.status(503).json({ error: e.message, url: WAHA_URL }); }
+  } catch (e) {
+    res.json({ url: WAHA_URL, health: null, version: null, webhook_url: SELF_WEBHOOK });
+  }
 });
 
 app.get('/api/wa/sessions', auth, async (req, res) => {

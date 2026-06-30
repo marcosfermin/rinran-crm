@@ -96,17 +96,64 @@ app.get('/api/sse', (req, res) => {
 const WAHA_URL = process.env.OPENWA_URL?.replace(/\/$/, '') || 'http://waha:3000';
 const WAHA_KEY = process.env.OPENWA_API_KEY || '';
 const wahaHdr = () => ({ 'X-Api-Key': WAHA_KEY, Accept: 'application/json' });
+const SELF_WEBHOOK = process.env.WEBHOOK_URL || 'http://backend:4000/webhook';
+
+// WAHA health/version
+app.get('/api/wa/info', auth, async (req, res) => {
+  try {
+    const [health, version] = await Promise.allSettled([
+      axios.get(`${WAHA_URL}/api/health`, { headers: wahaHdr(), timeout: 5000 }),
+      axios.get(`${WAHA_URL}/api/version`, { headers: wahaHdr(), timeout: 5000 }),
+    ]);
+    res.json({
+      url: WAHA_URL,
+      health: health.status === 'fulfilled' ? health.value.data : null,
+      version: version.status === 'fulfilled' ? version.value.data : null,
+      webhook_url: SELF_WEBHOOK,
+    });
+  } catch (e) { res.status(503).json({ error: e.message, url: WAHA_URL }); }
+});
 
 app.get('/api/wa/sessions', auth, async (req, res) => {
   try { res.json((await axios.get(`${WAHA_URL}/api/sessions`, { headers: wahaHdr(), timeout: 10000 })).data); }
   catch { res.json([]); }
 });
+
+// GET single session (includes config with webhook)
+app.get('/api/wa/sessions/:name', auth, async (req, res) => {
+  try {
+    const r = await axios.get(`${WAHA_URL}/api/sessions/${req.params.name}`, { headers: wahaHdr(), timeout: 10000 });
+    res.json(r.data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+
+// Create session (optionally auto-configure webhook)
 app.post('/api/wa/sessions', auth, async (req, res) => {
   try {
-    const r = await axios.post(`${WAHA_URL}/api/sessions`, req.body, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
+    const { name, auto_webhook = true, ...rest } = req.body;
+    const body = {
+      name,
+      config: {
+        noweb: { store: { enabled: true, fullSync: true } },
+        ...(auto_webhook ? {
+          webhooks: [{ url: SELF_WEBHOOK, events: ['message', 'message.ack', 'session.status'], enabled: true }]
+        } : {}),
+        ...rest.config,
+      },
+    };
+    const r = await axios.post(`${WAHA_URL}/api/sessions`, body, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
     res.status(r.status).json(r.data);
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
+
+// Update session config (webhook, events, etc.)
+app.put('/api/wa/sessions/:name', auth, async (req, res) => {
+  try {
+    const r = await axios.put(`${WAHA_URL}/api/sessions/${req.params.name}`, req.body, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
+    res.status(r.status).json(r.data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+
 app.post('/api/wa/sessions/:name/:action', auth, async (req, res) => {
   try {
     const r = await axios.post(`${WAHA_URL}/api/sessions/${req.params.name}/${req.params.action}`, {}, { headers: wahaHdr(), timeout: 15000 });
@@ -119,10 +166,35 @@ app.delete('/api/wa/sessions/:name', auth, async (req, res) => {
     res.status(r.status).json(r.data || { ok: true });
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
+
+// QR — returns { value, image } where image is a data URI (no external service)
 app.get('/api/wa/sessions/:name/qr', auth, async (req, res) => {
   try {
     const r = await axios.get(`${WAHA_URL}/api/${req.params.name}/auth/qr`, { headers: wahaHdr(), timeout: 10000 });
-    res.json(r.data);
+    const data = r.data;
+    if (data?.value) {
+      try {
+        const QRCode = require('qrcode');
+        data.image = await QRCode.toDataURL(data.value);
+      } catch {}
+    }
+    res.json(data);
+  } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
+});
+
+// Configure webhook on an existing session
+app.post('/api/wa/sessions/:name/webhook', auth, async (req, res) => {
+  const webhookUrl = req.body.webhook_url || SELF_WEBHOOK;
+  try {
+    const r = await axios.put(`${WAHA_URL}/api/sessions/${req.params.name}`, {
+      config: {
+        webhooks: [{ url: webhookUrl, events: ['message', 'message.ack', 'session.status'], enabled: true }],
+        noweb: { store: { enabled: true, fullSync: true } },
+      }
+    }, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 });
+    // Also persist in settings
+    getDb().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('webhook_url', webhookUrl);
+    res.status(r.status).json({ ok: true, session: req.params.name, webhook_url: webhookUrl });
   } catch (e) { res.status(e.response?.status || 500).json(e.response?.data || { error: e.message }); }
 });
 

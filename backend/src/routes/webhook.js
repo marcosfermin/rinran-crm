@@ -1,10 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { fromWaId, sendText, resolveLid } = require('../whatsapp');
+const { fromWaId, sendText, resolveLid, downloadMedia } = require('../whatsapp');
 const { broadcast: sseEmit } = require('./sse');
 const { fireOutboundWebhooks } = require('../outboundWebhooks');
+
+const uploadsDir = path.join(__dirname, '../../../data/uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 router.get('/', (req, res) => {
   res.json({ ok: true, endpoint: 'Rinran CRM webhook active' });
@@ -123,10 +128,29 @@ router.post('/', async (req, res) => {
       if (dup) return;
     }
 
-    db.prepare(`
+    const insertedMsg = db.prepare(`
       INSERT INTO messages (contact_id, direction, content, wa_message_id, status)
       VALUES (?, 'inbound', ?, ?, 'received')
     `).run(contact.id, text, wa_message_id);
+    const msgId = insertedMsg.lastInsertRowid;
+
+    // Auto-download media for image/video/document messages so they render inline
+    if (msgData.hasMedia && wa_message_id) {
+      setImmediate(async () => {
+        try {
+          const result = await downloadMedia(wa_message_id);
+          if (!result) return;
+          const ext = (result.contentType.split('/')[1] || 'bin').split(';')[0];
+          const filename = `media_${msgId}.${ext}`;
+          fs.writeFileSync(path.join(uploadsDir, filename), result.data);
+          const localUrl = `/uploads/${filename}`;
+          db.prepare('UPDATE messages SET media_url = ?, media_type = ?, media_filename = ? WHERE id = ?')
+            .run(localUrl, result.contentType, filename, msgId);
+        } catch (e) {
+          console.error('[webhook] media auto-download failed:', e.message);
+        }
+      });
+    }
 
     // Update conv_status to 'open' on incoming message
     db.prepare("UPDATE contacts SET conv_status = 'open', updated_at = datetime('now') WHERE id = ? AND conv_status != 'open'").run(contact.id);

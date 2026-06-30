@@ -381,6 +381,21 @@ export default function ContactDetail() {
   }
 
   const allMessages = useMemo(() => [...(data?.messages || [])].reverse(), [data?.messages]);
+
+  // Auto-download media placeholders with no local URL
+  useEffect(() => {
+    const pending = allMessages.filter(
+      m => !m.media_url && m.wa_message_id && ['[Foto]', '[Video]', '[Archivo]', '[Sticker]'].includes(m.content)
+    );
+    if (!pending.length) return;
+    let changed = false;
+    Promise.all(pending.map(m =>
+      apiFetch(`/api/messages/${m.id}/download-media`, { method: 'POST' })
+        .then(r => { if (r?.ok) changed = true; })
+        .catch(() => {})
+    )).then(() => { if (changed) load(); });
+  }, [allMessages.length]);
+
   const filteredMessages = useMemo(() => {
     if (!searchQuery.trim()) return allMessages;
     const q = searchQuery.toLowerCase();

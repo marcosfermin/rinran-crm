@@ -112,9 +112,10 @@ export default function InboxPage() {
   const [statusMenuId, setStatusMenuId] = useState(null);
   const [assignMenuId, setAssignMenuId] = useState(null);
   const { status: syncStatus, startSync } = useSyncStatus();
+  const sseDebounce = useRef(null);
 
   const PAGE_SIZE = 40;
-  const loadPage = useCallback((p, append = false) => {
+  const loadPage = useCallback((p, append = false, sseUpdate = false) => {
     const params = new URLSearchParams({ page: p, limit: PAGE_SIZE });
     if (search) params.set('search', search);
     if (convStatusFilter) params.set('conv_status', convStatusFilter);
@@ -126,6 +127,16 @@ export default function InboxPage() {
           const ids = new Set(prev.map(c => c.id));
           return [...prev, ...(data.conversations ?? []).filter(c => !ids.has(c.id))];
         });
+      } else if (sseUpdate) {
+        // Merge: place fresh page-1 at top, keep any already-loaded later-page items below.
+        // This prevents a contact that moved from page 2 → page 1 from appearing twice,
+        // and avoids wiping extra items the user loaded with "Cargar más".
+        setConversations(prev => {
+          const fresh = data.conversations ?? [];
+          const freshIds = new Set(fresh.map(c => c.id));
+          const rest = prev.filter(c => !freshIds.has(c.id));
+          return [...fresh, ...rest];
+        });
       } else {
         setConversations(data.conversations ?? []);
         setPage(1);
@@ -134,17 +145,20 @@ export default function InboxPage() {
     }).catch(() => {});
   }, [search, convStatusFilter, agentFilter]);
 
-  const load = useCallback(() => loadPage(1, false), [loadPage]);
+  const load = useCallback(() => loadPage(1, false, false), [loadPage]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     if (!token) return;
     const es = new EventSource(`/api/sse?token=${encodeURIComponent(token)}`);
-    es.addEventListener('message', () => load());
+    es.addEventListener('message', () => {
+      clearTimeout(sseDebounce.current);
+      sseDebounce.current = setTimeout(() => loadPage(1, false, true), 150);
+    });
     es.onerror = () => {};
-    return () => es.close();
-  }, [token, load]);
+    return () => { es.close(); clearTimeout(sseDebounce.current); };
+  }, [token, loadPage]);
 
   useEffect(() => {
     if (user?.role === 'admin') {

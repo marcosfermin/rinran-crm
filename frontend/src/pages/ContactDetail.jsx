@@ -171,7 +171,7 @@ export default function ContactDetail() {
     e.preventDefault();
     const payload = { ...reminderForm, due_at: localToUtc(reminderForm.due_at), contact_id: id };
     if (editReminderId) {
-      await apiFetch(`/api/reminders/${editReminderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at }) });
+      await apiFetch(`/api/reminders/${editReminderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at, wa_message: payload.wa_message || null }) });
     } else {
       await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     }

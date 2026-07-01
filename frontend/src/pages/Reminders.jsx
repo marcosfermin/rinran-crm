@@ -69,7 +69,7 @@ export default function Reminders() {
     e.preventDefault();
     const payload = { ...form, due_at: localToUtc(form.due_at) };
     if (editId) {
-      await apiFetch(`/api/reminders/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at }) });
+      await apiFetch(`/api/reminders/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at, wa_message: payload.wa_message || null }) });
     } else {
       await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     }

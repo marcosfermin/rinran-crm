@@ -42,7 +42,11 @@ router.patch('/:id', (req, res) => {
   if (done !== undefined) { fields.push('done = ?'); params.push(done ? 1 : 0); }
   if (title !== undefined) { fields.push('title = ?'); params.push(title); }
   if (note !== undefined) { fields.push('note = ?'); params.push(note); }
-  if (due_at !== undefined) { fields.push('due_at = ?'); params.push(due_at); }
+  if (due_at !== undefined) {
+    fields.push('due_at = ?'); params.push(due_at);
+    // Reset notified_at so the scheduler fires again at the new time
+    fields.push('notified_at = ?'); params.push(null);
+  }
   if (wa_message !== undefined) { fields.push('wa_message = ?'); params.push(wa_message || null); }
   if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
   params.push(req.params.id);

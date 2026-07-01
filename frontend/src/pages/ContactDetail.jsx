@@ -113,7 +113,7 @@ export default function ContactDetail() {
   const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState('');
   const [reminders, setReminders] = useState([]);
-  const [reminderForm, setReminderForm] = useState({ title: '', note: '', due_at: '' });
+  const [reminderForm, setReminderForm] = useState({ title: '', note: '', due_at: '', wa_message: '' });
   const [showReminderAdd, setShowReminderAdd] = useState(false);
   const [editReminderId, setEditReminderId] = useState(null);
   const [allTags, setAllTags] = useState([]);
@@ -175,7 +175,7 @@ export default function ContactDetail() {
     } else {
       await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     }
-    setShowReminderAdd(false); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '' }); loadReminders();
+    setShowReminderAdd(false); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '', wa_message: '' }); loadReminders();
   }
 
   async function markReminderDone(rid) {
@@ -563,7 +563,7 @@ export default function ContactDetail() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-500">{reminders.filter(r => !r.done).length} pendiente(s)</p>
-                <button onClick={() => { setShowReminderAdd(v => !v); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '' }); }}
+                <button onClick={() => { setShowReminderAdd(v => !v); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '', wa_message: '' }); }}
                   className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300">
                   <Plus size={12} /> Nuevo
                 </button>
@@ -580,6 +580,9 @@ export default function ContactDetail() {
                   <input type="datetime-local" required value={reminderForm.due_at}
                     onChange={e => setReminderForm(f => ({ ...f, due_at: e.target.value }))}
                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                  <textarea value={reminderForm.wa_message || ''} onChange={e => setReminderForm(f => ({ ...f, wa_message: e.target.value }))} rows={2}
+                    placeholder="Mensaje WA al contacto (opcional) — {{nombre}}, {{titulo}}"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500 resize-none" />
                   <div className="flex gap-1.5">
                     <button type="button" onClick={() => { setShowReminderAdd(false); setEditReminderId(null); }}
                       className="flex-1 py-1.5 rounded border border-gray-600 text-xs text-gray-400">Cancelar</button>
@@ -605,7 +608,7 @@ export default function ContactDetail() {
                         </p>
                       </div>
                       {!r.done && (
-                        <button onClick={() => { setEditReminderId(r.id); setReminderForm({ title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at) }); setShowReminderAdd(true); }}
+                        <button onClick={() => { setEditReminderId(r.id); setReminderForm({ title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at), wa_message: r.wa_message || '' }); setShowReminderAdd(true); }}
                           className="p-1 text-gray-600 hover:text-yellow-400 shrink-0">
                           <Edit2 size={11} />
                         </button>

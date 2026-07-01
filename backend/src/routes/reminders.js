@@ -25,9 +25,9 @@ router.get('/', (req, res) => {
 // POST /reminders
 router.post('/', (req, res) => {
   const db = getDb();
-  const { contact_id, title, note, due_at } = req.body;
+  const { contact_id, title, note, due_at, wa_message } = req.body;
   if (!contact_id || !title || !due_at) return res.status(400).json({ error: 'contact_id, title, due_at required' });
-  const r = db.prepare('INSERT INTO reminders (contact_id, user_id, title, note, due_at) VALUES (?, ?, ?, ?, ?)').run(contact_id, req.user.id, title, note || null, due_at);
+  const r = db.prepare('INSERT INTO reminders (contact_id, user_id, title, note, due_at, wa_message) VALUES (?, ?, ?, ?, ?, ?)').run(contact_id, req.user.id, title, note || null, due_at, wa_message || null);
   res.status(201).json(db.prepare(`
     SELECT r.*, c.name as contact_name, c.phone as contact_phone
     FROM reminders r JOIN contacts c ON r.contact_id = c.id WHERE r.id = ?
@@ -37,12 +37,13 @@ router.post('/', (req, res) => {
 // PATCH /reminders/:id
 router.patch('/:id', (req, res) => {
   const db = getDb();
-  const { done, title, note, due_at } = req.body;
+  const { done, title, note, due_at, wa_message } = req.body;
   const fields = [], params = [];
   if (done !== undefined) { fields.push('done = ?'); params.push(done ? 1 : 0); }
   if (title !== undefined) { fields.push('title = ?'); params.push(title); }
   if (note !== undefined) { fields.push('note = ?'); params.push(note); }
   if (due_at !== undefined) { fields.push('due_at = ?'); params.push(due_at); }
+  if (wa_message !== undefined) { fields.push('wa_message = ?'); params.push(wa_message || null); }
   if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
   params.push(req.params.id);
   db.prepare(`UPDATE reminders SET ${fields.join(', ')} WHERE id = ?`).run(...params);

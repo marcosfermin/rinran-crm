@@ -222,6 +222,7 @@ const { broadcast: sseEmit, sendToUser: sseSendToUser } = require('./routes/sse'
 const { sendReminderEmail } = require('./emailService');
 // Migrations
 try { getDb().exec("ALTER TABLE reminders ADD COLUMN notified_at TEXT"); } catch {}
+try { getDb().exec("ALTER TABLE reminders ADD COLUMN wa_message TEXT"); } catch {}
 try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_url TEXT"); } catch {}
 try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_filename TEXT"); } catch {}
 try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_mimetype TEXT"); } catch {}
@@ -244,6 +245,20 @@ setInterval(async () => {
           if (userRow?.email) sendReminderEmail(userRow.email, r.title, r.contact_name).catch(() => {});
         }
       } catch {}
+      // Send WhatsApp message to contact if configured
+      if (r.wa_message) {
+        try {
+          const contact = db.prepare('SELECT phone, wa_chat_id FROM contacts WHERE id = ?').get(r.contact_id);
+          if (contact?.phone) {
+            const msg = r.wa_message.replace(/\{\{nombre\}\}/g, r.contact_name).replace(/\{\{titulo\}\}/g, r.title);
+            await sendText(contact.phone, msg, contact.wa_chat_id);
+            db.prepare("INSERT INTO messages (contact_id, direction, content, status) VALUES (?, 'outbound', ?, 'sent')").run(r.contact_id, msg);
+            console.log(`[reminder] WhatsApp enviado a ${contact.phone}: "${msg.slice(0, 60)}"`);
+          }
+        } catch (e) {
+          console.error(`[reminder] Error enviando WhatsApp:`, e.message);
+        }
+      }
     }
   } catch (e) {
     console.error('[reminder] Scheduler error:', e.message);
@@ -267,7 +282,7 @@ setInterval(async () => {
 // WAHA session watchdog — auto-restart on recoverable failures only.
 // Uses time-based backoff: if a session fails again within 3 min of the last restart,
 // back off exponentially (up to 10 min) instead of hammering WhatsApp.
-const { resetSession, configureWebhook } = require('./whatsapp');
+const { resetSession, configureWebhook, sendText } = require('./whatsapp');
 let watchdogFailCount = 0;
 let watchdogLastRestart = 0;
 const SELF_WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://backend:4000/webhook';

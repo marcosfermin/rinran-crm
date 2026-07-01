@@ -134,6 +134,7 @@ function initSchema() {
       note TEXT,
       due_at TEXT NOT NULL,
       done INTEGER NOT NULL DEFAULT 0,
+      wa_message TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

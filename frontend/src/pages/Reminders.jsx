@@ -26,7 +26,7 @@ function utcToLocal(dtUtc) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
-const EMPTY = { contact_id: '', title: '', note: '', due_at: '' };
+const EMPTY = { contact_id: '', title: '', note: '', due_at: '', wa_message: '' };
 
 export default function Reminders() {
   const navigate = useNavigate();
@@ -55,7 +55,7 @@ export default function Reminders() {
 
   function openEdit(r) {
     setEditId(r.id);
-    setForm({ contact_id: String(r.contact_id), title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at) });
+    setForm({ contact_id: String(r.contact_id), title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at), wa_message: r.wa_message || '' });
     setShowForm(true);
   }
 
@@ -148,6 +148,13 @@ export default function Reminders() {
               <label className="text-xs text-gray-400 mb-1 block">Fecha y hora *</label>
               <input required type="datetime-local" value={form.due_at} onChange={e => setForm(f => ({ ...f, due_at: e.target.value }))}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Mensaje de WhatsApp al contacto (opcional)</label>
+              <textarea value={form.wa_message} onChange={e => setForm(f => ({ ...f, wa_message: e.target.value }))} rows={2}
+                placeholder="Hola {{nombre}}, te contactamos para..."
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500 resize-none" />
+              <p className="text-xs text-gray-600 mt-1">Variables: {'{{nombre}}'}, {'{{titulo}}'}. Si está vacío no se envía mensaje.</p>
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={cancelForm}

@@ -13,8 +13,12 @@ function logActivity(db, contactId, userId, action, detail) {
 // GET /contacts
 router.get('/', (req, res) => {
   const db = getDb();
-  const { category_id, status, search, pipeline_stage, assigned_to, conv_status, page = 1, limit = 50 } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const { category_id, status, search, pipeline_stage, assigned_to, conv_status } = req.query;
+  // Sanitize pagination: non-numeric / zero / negative values would otherwise
+  // produce NaN (SQLite "datatype mismatch" 500) or a negative offset.
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit) || 50));
+  const offset = (page - 1) * limit;
 
   let where = ['c.is_deleted != 1'];
   const params = [];
@@ -51,7 +55,7 @@ router.get('/', (req, res) => {
     WHERE ${whereClause}
     ORDER BY c.updated_at DESC
     LIMIT ? OFFSET ?
-  `).all(...params, parseInt(limit), offset);
+  `).all(...params, limit, offset);
 
   const parsed = contacts.map(c => ({
     ...c,
@@ -59,7 +63,7 @@ router.get('/', (req, res) => {
     tags_raw: undefined,
   }));
 
-  res.json({ contacts: parsed, total, page: parseInt(page), limit: parseInt(limit) });
+  res.json({ contacts: parsed, total, page, limit });
 });
 
 // GET /contacts/export — CSV export

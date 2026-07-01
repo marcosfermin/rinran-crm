@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Trash2, Activity, Sun, Moon, Pencil, X } from 'lucide-react';
+import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Trash2, Activity, Sun, Moon, Pencil, X, BookOpen } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { apiFetch } from './utils/apiFetch.js';
 import Login from './pages/Login.jsx';
@@ -20,6 +20,7 @@ import SettingsPage from './pages/Settings.jsx';
 import Reminders from './pages/Reminders.jsx';
 import Trash from './pages/Trash.jsx';
 import WebhookLog from './pages/WebhookLog.jsx';
+import Scripts from './pages/Scripts.jsx';
 
 function playNotificationSound() {
   try {
@@ -235,6 +236,7 @@ function buildSidebarNav(role) {
       { to: '/categories', icon: Tag,      label: 'Categorías', end: false },
       { to: '/templates',  icon: Zap,      label: 'Plantillas', end: false },
       { to: '/auto-reply', icon: Bot,      label: 'AutoReply',  end: false },
+      { to: '/scripts',    icon: BookOpen, label: 'Scripts',    end: false },
       { to: '/team',       icon: Users2,   label: 'Equipo',     end: false },
       { to: '/sessions',   icon: Wifi,     label: 'Sesiones',   end: false },
       { to: '/webhook-log',icon: Activity, label: 'Webhook Log',end: false },
@@ -463,6 +465,7 @@ export default function App() {
           <Route path="/reminders" element={<Reminders />} />
           <Route path="/trash" element={<Trash />} />
           <Route path="/webhook-log" element={user?.role === 'admin' ? <WebhookLog /> : <Navigate to="/inbox" replace />} />
+          <Route path="/scripts" element={<Scripts />} />
         </Routes>
       </main>
       <BottomNav unread={unread} />

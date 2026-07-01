@@ -294,6 +294,62 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scripts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      emoji TEXT DEFAULT '',
+      content TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  const scriptCount = db.prepare('SELECT COUNT(*) as n FROM scripts').get().n;
+  if (scriptCount === 0) {
+    const seedScripts = [
+      ['script', 'Opening Message', '',        '¡Hola, un placer! Aquí RinRan Music 🎵 ¿Tienes un video en YouTube que quieras promocionar, o estás buscando algo más completo? Mándame el link o cuéntame tu meta y vemos cómo se puede 🔥', 0],
+      ['script', 'Trial Close', '',             'Por lo que me dices, te recomiendo el plan [NOMBRE PLAN de $PRECIO] — te da entre [RANGO]. ¿Vamos por ese o quieres ver el siguiente nivel? A la orden.', 1],
+      ['script', 'Soft Close → Payment Link', '', 'Bendito sea, vamos con ese 🔥. Te mando el link de Stripe ahora mismo y arrancamos en cuanto se confirme. ¿Me pasas tu correo para el recibo?', 2],
+      ['script', 'Hard Close (Hesitating)', '', 'Te entiendo, hermano. Una cosa real: para que la campaña esté lista para tu fecha necesito acordar mínimo 1 semana antes. Si me confirmas hoy te separo el slot — mañana ya no se puede garantizar. ¿Cómo lo ves?', 3],
+      ['script', 'Payment Link Message', '',   'Aquí va tu link seguro de Stripe 👉 [LINK]. En cuanto se confirme, arrancamos la campaña 🔊. Cualquier duda me escribes por aquí mismo, un placer.', 4],
+      ['script', 'Payment Confirmed', '',       '¡Pago confirmado! 🔥📈 Ya empezamos a trabajar tu campaña. Te mando reporte de avance en [X días]. Bienvenido a la familia RinRan 🎵, un placer.', 5],
+      ['script', 'Wait Script (Escalating)', '', 'Un momento por favor — voy a conectarte directamente con Jarxiel para atenderte como mereces. Te responde en máximo 15 minutos, un placer.', 6],
+      ['script', 'Follow-up #1 · 24h', '',     'Hey, un placer otra vez 🎵. Solo confirmar que el slot para tu campaña sigue disponible. ¿Cómo vas con la decisión?', 7],
+      ['objection', '"Está muy caro."', '💸',  'Te entiendo, hermano. Pero mira los números: el plan POBRE de $150 te da entre 20,000 y 40,000 views — eso es bendito el costo por view más bajo del mercado. ¿Vamos con ese o quieres ver el de $300 que da 40K–80K? A la orden.', 0],
+      ['objection', '"Lo pienso y te aviso."', '🤔', 'Tranquilo, un placer hablar contigo. Solo recuerda: las campañas se acuerdan mín. 1 semana antes del estreno (Google Ads) o 2 días (Externo). ¿Cuándo es tu estreno? Te separo el slot sin compromiso.', 1],
+      ['objection', '"¿Hay garantías?"', '🛡️', 'Garantizamos el rango de views de cada paquete (ej. plan Estándar $1,350 te da 180K–360K). Lo que no garantizamos al 100% es retención. Pero el rango sí lo entregamos, más claro imposible.', 2],
+      ['objection', '"Mi primo lo hace gratis."', '👤', 'Bien que tengas apoyo. Pero pregúntale: ¿esos views suman horas para monetizar? ¿Cuentan para tendencias? Lo nuestro es Google Ads oficial y tráfico web real — no bots — y por eso entras a charts en RD, Colombia, Panamá y más.', 3],
+      ['objection', '"¿Puedo pagar a plazos?"', '📅', 'Buena pregunta — los planes de pago los maneja directamente Jarxiel. Te conecto con él ahora mismo para que vean los términos. [ESCALAR]', 4],
+      ['objection', '"¿Funciona si mi video tiene contenido fuerte?"', '🎬', 'Para Google Ads necesitamos contenido limpio. Si tu video es explícito te recomiendo Tráfico Web Externo — esos views sí cuentan para tendencias y monetización, empieza desde $150 con 7,500 views. Bendito sea, igual te llega 🔥', 5],
+      ['objection', '"¿En qué países trabajan?"', '🌎', 'Latinoamérica completa: RD 🇩🇴, México 🇲🇽, Colombia 🇨🇴, Chile 🇨🇱, Panamá 🇵🇦, Honduras 🇭🇳, El Salvador 🇸🇻 y más. Tú eliges los países objetivo y nosotros segmentamos.', 6],
+      ['objection', '"¿Cuánto demora ver resultados?"', '⏱️', 'Charts: el día acordado. Suscriptores: 1 semana / cada 1,000. Monetización 4,000h: aprox 20 días. RIAA Gold: 3 a 9 meses. Las campañas de views empiezan el día que acordamos.', 7],
+      ['objection', '"¿Puedes manejar varios artistas?" (Manager)', '🎯', 'Sí, manejamos managers con 1 a 5 artistas simultáneamente. Eso ya entra en modelo MENSUAL — te conecto con Jarxiel para armar el retainer a tu medida. [ESCALAR]', 8],
+      ['objection', '"Tengo un podcast/programa, ¿también?"', '🎙️', 'Claro, trabajamos con plataformas multimedia, podcasts y streamers que quieren subir suscriptores. Eso es modelo MENSUAL desde $3,000. Te conecto con Jarxiel. [ESCALAR]', 9],
+      ['do', 'PIDE el link del video de YouTube ANTES de cotizar.', '', '', 0],
+      ['do', 'PREGUNTA si es contenido limpio o explícito.', '', '', 1],
+      ['do', 'IDENTIFICA el perfil: Artista / Manager / Multimedia.', '', '', 2],
+      ['do', 'CONFIRMA si quiere campaña única o mensual.', '', '', 3],
+      ['do', 'AVISA mín. 1 semana antes del estreno (Google Ads) o 2 días (Externo).', '', '', 4],
+      ['do', 'RECUERDA que el video de 4K horas NO se borra.', '', '', 5],
+      ['do', 'SUGIERE Luminate cuando hablen de Disco de Oro.', '', '', 6],
+      ['do', 'CIERRA con "un placer" o "a la orden". Todo positivo.', '', '', 7],
+      ['dont', 'NO prometer Disco de Oro garantizado — solo estrategia.', '', '', 0],
+      ['dont', 'NO prometer # exacto de views — solo el RANGO.', '', '', 1],
+      ['dont', 'NO ofrecer Google Ads para videos explícitos.', '', '', 2],
+      ['dont', 'NO cotizar mensualidades sin Jarxiel.', '', '', 3],
+      ['dont', 'NO dar descuentos > 10% sin aprobación.', '', '', 4],
+      ['dont', 'NO decir que el video de 4,000h se puede BORRAR.', '', '', 5],
+      ['dont', 'NO discutir reembolsos ni temas legales — escalar.', '', '', 6],
+      ['dont', 'NO usar "maldito" ni lenguaje negativo — NUNCA, ni en broma.', '', '', 7],
+    ];
+    for (const [category, title, emoji, content, sort_order] of seedScripts) {
+      db.prepare('INSERT INTO scripts (category, title, emoji, content, sort_order) VALUES (?, ?, ?, ?, ?)').run(category, title, emoji, content, sort_order);
+    }
+    console.log('[db] Scripts seeded with default RinRan content');
+  }
+
   const existingCats = db.prepare('SELECT COUNT(*) as n FROM categories').get();
   if (existingCats.n === 0) {
     db.prepare("INSERT OR IGNORE INTO categories (name, color) VALUES (?, ?)").run('Lead', '#f59e0b');

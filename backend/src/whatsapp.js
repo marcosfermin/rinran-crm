@@ -311,6 +311,7 @@ async function configureWebhook(webhookUrl) {
     await axios.put(`${base()}/api/sessions/${sessionKey}`, {
       config: {
         webhooks: [{ url: webhookUrl, events: ['message', 'message.ack'], enabled: true }],
+        noweb: { store: { enabled: true, fullSync: true } },
       }
     }, { headers: headers(), timeout: 10000 });
     console.log(`[waha] Webhook + store configured → ${webhookUrl}`);

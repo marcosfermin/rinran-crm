@@ -7,6 +7,7 @@ services:
     environment:
       PORT: 4000
       DB_PATH: /data/rinran.db
+      TZ: America/New_York
     volumes:
       - crm-data:/data
     depends_on:

@@ -20,11 +20,11 @@ router.get('/wa-labels', async (req, res) => {
   res.json(labels);
 });
 
-// POST /categories/sync-all — push every contact's category as a WA label
-router.post('/sync-all', async (req, res) => {
+// POST /categories/sync-all — push every contact's category as a WA label (background, rate-limited)
+router.post('/sync-all', (req, res) => {
   const db = getDb();
   const allLinked = db.prepare('SELECT wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all().map(r => r.wa_label_id);
-  if (!allLinked.length) return res.json({ synced: 0, errors: 0, total: 0, message: 'No hay categorías vinculadas a WhatsApp' });
+  if (!allLinked.length) return res.json({ started: false, total: 0, message: 'No hay categorías vinculadas a WhatsApp' });
 
   const contacts = db.prepare(`
     SELECT co.id, co.phone, co.wa_chat_id, cat.wa_label_id
@@ -34,22 +34,27 @@ router.post('/sync-all', async (req, res) => {
     AND (co.wa_chat_id IS NOT NULL OR co.phone IS NOT NULL)
   `).all();
 
-  let synced = 0, errors = 0;
-  for (const c of contacts) {
-    try {
-      const chatId = c.wa_chat_id || toWaId(c.phone);
-      const current = await getChatLabels(chatId);
-      const keep = current.filter(l => !allLinked.includes(String(l.id))).map(l => String(l.id));
-      keep.push(c.wa_label_id);
-      await setChatLabels(chatId, keep);
-      synced++;
-    } catch (e) {
-      errors++;
-      console.error(`[categories] sync error contact ${c.id}:`, e.message);
+  // Respond immediately — sync runs in background to avoid overwhelming WAHA
+  res.json({ started: true, total: contacts.length });
+
+  // Background loop with 300ms delay between calls to stay well under WAHA rate limits
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+  (async () => {
+    let synced = 0, errors = 0;
+    for (const c of contacts) {
+      try {
+        const chatId = c.wa_chat_id || toWaId(c.phone);
+        // Skip the GET labels step — just set the CRM label directly (avoids double the API calls)
+        await setChatLabels(chatId, [c.wa_label_id]);
+        synced++;
+      } catch (e) {
+        errors++;
+        console.error(`[categories] sync error contact ${c.id}:`, e.message);
+      }
+      await delay(300);
     }
-  }
-  console.log(`[categories] sync-all: ${synced} synced, ${errors} errors / ${contacts.length} total`);
-  res.json({ synced, errors, total: contacts.length });
+    console.log(`[categories] sync-all done: ${synced} synced, ${errors} errors / ${contacts.length} total`);
+  })();
 });
 
 router.post('/', (req, res) => {

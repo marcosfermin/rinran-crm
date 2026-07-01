@@ -53,12 +53,13 @@ export default function Categories() {
   async function syncAll() {
     setSyncing(true);
     setSyncResult(null);
-    try {
-      const r = await apiFetch('/api/categories/sync-all', { method: 'POST' });
-      const d = await r?.json();
+    const r = await apiFetch('/api/categories/sync-all', { method: 'POST' });
+    const d = await r?.json();
+    setSyncing(false);
+    if (d?.started) {
+      setSyncResult({ message: `Sincronizando ${d.total} contactos en segundo plano (300ms entre cada uno). Revisa los labels en WhatsApp en unos minutos.` });
+    } else {
       setSyncResult(d);
-    } finally {
-      setSyncing(false);
     }
   }
 

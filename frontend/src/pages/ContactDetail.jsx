@@ -115,6 +115,7 @@ export default function ContactDetail() {
   const [reminders, setReminders] = useState([]);
   const [reminderForm, setReminderForm] = useState({ title: '', note: '', due_at: '' });
   const [showReminderAdd, setShowReminderAdd] = useState(false);
+  const [editReminderId, setEditReminderId] = useState(null);
   const [allTags, setAllTags] = useState([]);
   const [stages, setStages] = useState([]);
   const [customFields, setCustomFields] = useState([]);
@@ -156,14 +157,25 @@ export default function ContactDetail() {
     apiFetch(`/api/reminders?contact_id=${id}`).then(r => r?.json()).then(d => d && setReminders(Array.isArray(d) ? d : []));
   }
 
+  function localToUtc(dtLocal) {
+    if (!dtLocal) return '';
+    return new Date(dtLocal).toISOString().replace('T', ' ').slice(0, 19);
+  }
+  function utcToLocal(dtUtc) {
+    if (!dtUtc) return '';
+    const d = new Date(dtUtc.replace(' ', 'T') + 'Z');
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+
   async function addReminder(e) {
     e.preventDefault();
-    const r = await apiFetch('/api/reminders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...reminderForm, contact_id: id }),
-    });
-    if (r?.ok) { setShowReminderAdd(false); setReminderForm({ title: '', note: '', due_at: '' }); loadReminders(); }
+    const payload = { ...reminderForm, due_at: localToUtc(reminderForm.due_at), contact_id: id };
+    if (editReminderId) {
+      await apiFetch(`/api/reminders/${editReminderId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at }) });
+    } else {
+      await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    }
+    setShowReminderAdd(false); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '' }); loadReminders();
   }
 
   async function markReminderDone(rid) {
@@ -551,25 +563,28 @@ export default function ContactDetail() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-500">{reminders.filter(r => !r.done).length} pendiente(s)</p>
-                <button onClick={() => setShowReminderAdd(v => !v)}
+                <button onClick={() => { setShowReminderAdd(v => !v); setEditReminderId(null); setReminderForm({ title: '', note: '', due_at: '' }); }}
                   className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300">
                   <Plus size={12} /> Nuevo
                 </button>
               </div>
               {showReminderAdd && (
                 <form onSubmit={addReminder} className="space-y-2 bg-gray-800 rounded-lg p-3">
+                  <p className="text-xs text-yellow-400 font-medium">{editReminderId ? 'Editar recordatorio' : 'Nuevo recordatorio'}</p>
                   <input required value={reminderForm.title} onChange={e => setReminderForm(f => ({ ...f, title: e.target.value }))}
                     placeholder="Título del recordatorio"
                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
+                  <input value={reminderForm.note || ''} onChange={e => setReminderForm(f => ({ ...f, note: e.target.value }))}
+                    placeholder="Nota (opcional)"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
                   <input type="datetime-local" required value={reminderForm.due_at}
                     onChange={e => setReminderForm(f => ({ ...f, due_at: e.target.value }))}
-                    min={new Date().toISOString().slice(0, 16)}
                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-500" />
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => setShowReminderAdd(false)}
+                    <button type="button" onClick={() => { setShowReminderAdd(false); setEditReminderId(null); }}
                       className="flex-1 py-1.5 rounded border border-gray-600 text-xs text-gray-400">Cancelar</button>
                     <button type="submit"
-                      className="flex-1 py-1.5 rounded bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-medium">Guardar</button>
+                      className="flex-1 py-1.5 rounded bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-medium">{editReminderId ? 'Guardar cambios' : 'Guardar'}</button>
                   </div>
                 </form>
               )}
@@ -589,6 +604,12 @@ export default function ContactDetail() {
                           {due.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
+                      {!r.done && (
+                        <button onClick={() => { setEditReminderId(r.id); setReminderForm({ title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at) }); setShowReminderAdd(true); }}
+                          className="p-1 text-gray-600 hover:text-yellow-400 shrink-0">
+                          <Edit2 size={11} />
+                        </button>
+                      )}
                     </div>
                   );
                 })}

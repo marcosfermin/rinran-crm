@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Plus, Check, Trash2, Clock, AlertCircle, X } from 'lucide-react';
+import { Bell, Plus, Check, Trash2, Clock, AlertCircle, X, Edit2 } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 function formatDue(due) {
@@ -13,13 +13,29 @@ function formatDue(due) {
   return { label: d.toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }), overdue: false };
 }
 
+// Convert datetime-local value (local time) to UTC string for the DB
+function localToUtc(dtLocal) {
+  if (!dtLocal) return '';
+  return new Date(dtLocal).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+// Convert UTC DB string back to datetime-local value (local time)
+function utcToLocal(dtUtc) {
+  if (!dtUtc) return '';
+  const d = new Date(dtUtc.replace(' ', 'T') + 'Z');
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+const EMPTY = { contact_id: '', title: '', note: '', due_at: '' };
+
 export default function Reminders() {
   const navigate = useNavigate();
   const [reminders, setReminders] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [showDone, setShowDone] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ contact_id: '', title: '', note: '', due_at: '' });
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(EMPTY);
 
   function load() {
     apiFetch(`/api/reminders?done=${showDone ? 1 : 0}`).then(r => r?.json()).then(d => d && setReminders(Array.isArray(d) ? d : []));
@@ -28,13 +44,37 @@ export default function Reminders() {
   useEffect(() => { load(); }, [showDone]);
 
   useEffect(() => {
-    apiFetch('/api/contacts?limit=200').then(r => r?.json()).then(d => d && setContacts(d.contacts ?? []));
+    apiFetch('/api/contacts?limit=500').then(r => r?.json()).then(d => d && setContacts(d.contacts ?? []));
   }, []);
 
-  async function addReminder(e) {
+  function openAdd() {
+    setEditId(null);
+    setForm(EMPTY);
+    setShowForm(true);
+  }
+
+  function openEdit(r) {
+    setEditId(r.id);
+    setForm({ contact_id: String(r.contact_id), title: r.title, note: r.note || '', due_at: utcToLocal(r.due_at) });
+    setShowForm(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditId(null);
+    setForm(EMPTY);
+  }
+
+  async function submitForm(e) {
     e.preventDefault();
-    const r = await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    if (r?.ok) { setShowAdd(false); setForm({ contact_id: '', title: '', note: '', due_at: '' }); load(); }
+    const payload = { ...form, due_at: localToUtc(form.due_at) };
+    if (editId) {
+      await apiFetch(`/api/reminders/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: payload.title, note: payload.note, due_at: payload.due_at }) });
+    } else {
+      await apiFetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    }
+    cancelForm();
+    load();
   }
 
   async function markDone(id) {
@@ -68,28 +108,30 @@ export default function Reminders() {
             className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showDone ? 'border-green-600 text-green-400 bg-green-500/10' : 'border-gray-700 text-gray-400 hover:text-white'}`}>
             {showDone ? 'Ver pendientes' : 'Ver completados'}
           </button>
-          <button onClick={() => setShowAdd(true)}
+          <button onClick={openAdd}
             className="flex items-center gap-1.5 bg-yellow-500 hover:bg-yellow-400 text-black px-3 py-2 rounded-xl text-sm font-medium transition-colors">
             <Plus size={15} /> Nuevo
           </button>
         </div>
       </div>
 
-      {showAdd && (
+      {showForm && (
         <div className="bg-gray-900 border border-yellow-700/40 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">Nuevo recordatorio</h2>
-            <button onClick={() => setShowAdd(false)} className="text-gray-500 hover:text-white"><X size={16} /></button>
+            <h2 className="text-sm font-semibold text-white">{editId ? 'Editar recordatorio' : 'Nuevo recordatorio'}</h2>
+            <button onClick={cancelForm} className="text-gray-500 hover:text-white"><X size={16} /></button>
           </div>
-          <form onSubmit={addReminder} className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">Contacto *</label>
-              <select required value={form.contact_id} onChange={e => setForm(f => ({ ...f, contact_id: e.target.value }))}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500">
-                <option value="">Seleccionar contacto...</option>
-                {contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
-              </select>
-            </div>
+          <form onSubmit={submitForm} className="space-y-3">
+            {!editId && (
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Contacto *</label>
+                <select required value={form.contact_id} onChange={e => setForm(f => ({ ...f, contact_id: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500">
+                  <option value="">Seleccionar contacto...</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Título *</label>
               <input required value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
@@ -105,14 +147,15 @@ export default function Reminders() {
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Fecha y hora *</label>
               <input required type="datetime-local" value={form.due_at} onChange={e => setForm(f => ({ ...f, due_at: e.target.value }))}
-                min={new Date().toISOString().slice(0, 16)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-yellow-500" />
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowAdd(false)}
+              <button type="button" onClick={cancelForm}
                 className="flex-1 py-2 rounded-lg border border-gray-700 text-sm text-gray-300 hover:bg-gray-800">Cancelar</button>
               <button type="submit"
-                className="flex-1 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-medium">Guardar</button>
+                className="flex-1 py-2 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-medium">
+                {editId ? 'Guardar cambios' : 'Guardar'}
+              </button>
             </div>
           </form>
         </div>
@@ -121,21 +164,21 @@ export default function Reminders() {
       {!showDone && overdue.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-xs font-semibold text-red-400 uppercase tracking-wide">Vencidos</h3>
-          {overdue.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onNavigate={navigate} />)}
+          {overdue.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onEdit={openEdit} onNavigate={navigate} />)}
         </div>
       )}
 
       {!showDone && upcoming.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Próximos</h3>
-          {upcoming.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onNavigate={navigate} />)}
+          {upcoming.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onEdit={openEdit} onNavigate={navigate} />)}
         </div>
       )}
 
       {showDone && (
         <div className="space-y-2">
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Completados</h3>
-          {done.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onNavigate={navigate} />)}
+          {done.map(r => <ReminderCard key={r.id} r={r} onDone={markDone} onDelete={del} onEdit={openEdit} onNavigate={navigate} />)}
         </div>
       )}
 
@@ -149,7 +192,7 @@ export default function Reminders() {
   );
 }
 
-function ReminderCard({ r, onDone, onDelete, onNavigate }) {
+function ReminderCard({ r, onDone, onDelete, onEdit, onNavigate }) {
   const { label, overdue } = formatDue(r.due_at);
   return (
     <div className={`bg-gray-900 border rounded-xl px-4 py-3 flex items-start gap-3 ${overdue && !r.done ? 'border-red-800/60 bg-red-950/10' : 'border-gray-800'}`}>
@@ -163,10 +206,15 @@ function ReminderCard({ r, onDone, onDelete, onNavigate }) {
         <button onClick={() => onNavigate(`/contacts/${r.contact_id}`)}
           className="text-xs text-blue-400 hover:text-blue-300 mt-1">{r.contact_name}</button>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className={`text-xs flex items-center gap-1 ${overdue && !r.done ? 'text-red-400' : 'text-gray-500'}`}>
+      <div className="flex items-center gap-1 shrink-0">
+        <span className={`text-xs flex items-center gap-1 mr-1 ${overdue && !r.done ? 'text-red-400' : 'text-gray-500'}`}>
           <Clock size={10} /> {label}
         </span>
+        {!r.done && (
+          <button onClick={() => onEdit(r)} className="p-1 text-gray-600 hover:text-yellow-400 transition-colors">
+            <Edit2 size={13} />
+          </button>
+        )}
         <button onClick={() => onDelete(r.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
           <Trash2 size={13} />
         </button>

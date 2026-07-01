@@ -323,14 +323,14 @@ setInterval(async () => {
       }
 
       // Time-based backoff: sessions that fail quickly after restart need longer cooldown
-      watchdogFailCount++;
-      const backoffMs = Math.min(10 * 60 * 1000, watchdogFailCount * 2 * 60 * 1000); // 2, 4, 6, …10 min
+      const backoffMs = Math.min(10 * 60 * 1000, (watchdogFailCount + 1) * 2 * 60 * 1000); // 2, 4, 6, …10 min
       const sinceLastRestart = Date.now() - watchdogLastRestart;
       if (sinceLastRestart < backoffMs) {
         console.log(`[watchdog] FAILED — in backoff (${Math.round((backoffMs - sinceLastRestart) / 1000)}s remaining)`);
         return;
       }
 
+      watchdogFailCount++;
       console.log(`[watchdog] FAILED — restarting (attempt #${watchdogFailCount})`);
       watchdogLastRestart = Date.now();
       await axios.post(`${WAHA_URL}/api/sessions/${session.name}/restart`, {}, { headers: { ...wahaHdr(), 'Content-Type': 'application/json' }, timeout: 10000 }).catch(() => {});

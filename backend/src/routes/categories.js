@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db');
-const { getLabels, getLabelChats, getChatLabels, setChatLabels, toWaId } = require('../whatsapp');
+const { getLabels, getLabelChats } = require('../whatsapp');
 
 router.get('/', (req, res) => {
   const db = getDb();
@@ -93,37 +93,6 @@ router.post('/sync-from-wa', async (req, res) => {
     contactsUpdated,
     total: linkedCats.length,
   });
-});
-
-// POST /categories/sync-all — push every contact's category as a WA label (background, rate-limited)
-router.post('/sync-all', (req, res) => {
-  const db = getDb();
-  const allLinked = db.prepare('SELECT wa_label_id FROM categories WHERE wa_label_id IS NOT NULL').all().map(r => r.wa_label_id);
-  if (!allLinked.length) return res.json({ started: false, total: 0, message: 'No hay categorías vinculadas a WhatsApp' });
-
-  const contacts = db.prepare(`
-    SELECT co.id, co.phone, co.wa_chat_id, cat.wa_label_id
-    FROM contacts co
-    JOIN categories cat ON co.category_id = cat.id
-    WHERE cat.wa_label_id IS NOT NULL AND co.is_deleted = 0
-    AND (co.wa_chat_id IS NOT NULL OR co.phone IS NOT NULL)
-  `).all();
-
-  // Respond immediately — sync runs in background to avoid overwhelming WAHA
-  res.json({ started: true, total: contacts.length });
-
-  // Background loop: 1s between calls so WAHA has time to process each label operation
-  const delay = ms => new Promise(r => setTimeout(r, ms));
-  (async () => {
-    let synced = 0, errors = 0;
-    for (const c of contacts) {
-      const chatId = c.wa_chat_id || toWaId(c.phone);
-      const ok = await setChatLabels(chatId, [c.wa_label_id]);
-      if (ok) synced++; else errors++;
-      await delay(1000);
-    }
-    console.log(`[categories] sync-all done: ${synced} synced, ${errors} errors / ${contacts.length} total`);
-  })();
 });
 
 router.post('/', (req, res) => {

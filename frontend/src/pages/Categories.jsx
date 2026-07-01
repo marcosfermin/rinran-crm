@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Link2, RefreshCw, Tag, Unlink, Download } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Link2, Tag, Unlink, Download } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 const COLORS = ['#22c55e','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#6b7280'];
@@ -11,7 +11,6 @@ export default function Categories() {
   const [form, setForm] = useState({ name: '', color: '#22c55e' });
   const [editing, setEditing] = useState(null);
   const [linkingId, setLinkingId] = useState(null);
-  const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
   const [importing, setImporting] = useState(false);
 
@@ -65,19 +64,6 @@ export default function Categories() {
     }
   }
 
-  async function syncAll() {
-    setSyncing(true);
-    setSyncResult(null);
-    const r = await apiFetch('/api/categories/sync-all', { method: 'POST' });
-    const d = await r?.json();
-    setSyncing(false);
-    if (d?.started) {
-      setSyncResult({ message: `Sincronizando ${d.total} contactos en segundo plano (300ms entre cada uno). Revisa los labels en WhatsApp en unos minutos.` });
-    } else {
-      setSyncResult(d);
-    }
-  }
-
   const linkedCount = categories.filter(c => c.wa_label_id).length;
 
   return (
@@ -94,12 +80,7 @@ export default function Categories() {
             <Download size={14} className={importing ? 'animate-bounce' : ''} />
             {importing ? 'Importando…' : 'WhatsApp → CRM'}
           </button>
-          <button onClick={syncAll} disabled={syncing || linkedCount === 0}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Sincronizando…' : 'CRM → WhatsApp'}
-          </button>
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+<button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
             <Plus size={16} /> Nueva
           </button>
         </div>

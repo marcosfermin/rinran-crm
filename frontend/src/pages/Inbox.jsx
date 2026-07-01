@@ -231,6 +231,9 @@ export default function InboxPage() {
         </div>
 
         {syncStatus.running && <div className="mb-2 text-xs text-gray-500 px-0.5">Importando... {syncStatus.imported.contacts} contactos · {syncStatus.imported.messages} mensajes</div>}
+        {!syncStatus.running && !syncStatus.lastSync && (
+          <div className="mb-2 text-xs text-yellow-600 px-0.5">⚠ Si acabás de conectar WhatsApp, esperá 2-3 min antes de sincronizar para que WAHA cargue todos los chats.</div>
+        )}
 
         {showFilters && (
           <div className="mb-2 flex flex-wrap gap-2">

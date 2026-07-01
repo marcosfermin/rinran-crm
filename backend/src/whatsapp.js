@@ -113,17 +113,25 @@ async function getProfilePic(chatId) {
   }
 }
 
-// Get all chats — WAHA Community: GET /api/{session}/chats
+// Get all chats — paginate until WAHA returns fewer than the batch size
 async function getAllChats() {
   try {
     const session = await getSession();
     if (!session) return [];
     const sessionKey = session.name || session.id;
-    const res = await axios.get(
-      `${base()}/api/${sessionKey}/chats`,
-      { headers: headers(), timeout: 30000, params: { limit: 1000 } }
-    );
-    return Array.isArray(res.data) ? res.data : [];
+    const BATCH = 100;
+    let all = [], offset = 0;
+    while (true) {
+      const res = await axios.get(
+        `${base()}/api/${sessionKey}/chats`,
+        { headers: headers(), timeout: 30000, params: { limit: BATCH, offset } }
+      );
+      const page = Array.isArray(res.data) ? res.data : [];
+      all = all.concat(page);
+      if (page.length < BATCH) break;
+      offset += BATCH;
+    }
+    return all;
   } catch (e) {
     console.error('[waha] getAllChats error:', e.message);
     return [];

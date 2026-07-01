@@ -239,9 +239,14 @@ async function processAutoReply(db, contact, text, isNewContact) {
         SELECT id FROM messages WHERE contact_id = ? AND direction = 'outbound'
           AND content = ? AND sent_at > datetime('now', '-10 minutes')
       `).get(contact.id, rateKey);
-      if (recent) continue;
+      if (recent) {
+        console.log(`[auto-reply] Regla "${rule.name}" bloqueada por rate-limit (ya enviada hace <10min a ${contact.phone})`);
+        continue;
+      }
 
       const chatId = contact.wa_chat_id || (contact.phone.replace(/^\+/, '') + '@c.us');
+
+      console.log(`[auto-reply] Regla "${rule.name}" disparada para ${contact.phone} (text="${text.slice(0,40)}")`);
 
       // Send text first (if any)
       if (response) {

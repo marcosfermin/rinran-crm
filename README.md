@@ -21,7 +21,7 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 - **Plantillas** — Guardá mensajes predefinidos para reutilizarlos desde cualquier chat.
 - **Respuestas automáticas** — Configurá reglas para responder automáticamente según palabras clave o el primer mensaje.
 - **Pipeline** — Vista Kanban de contactos por etapa de venta (Nuevo, En progreso, Ganado, etc.).
-- **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos. Sincronización bidireccional con labels de WhatsApp: importa labels de WA al CRM o aplica categorías del CRM como labels en WhatsApp.
+- **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos. Podés importar tus labels de WhatsApp al CRM con un solo clic.
 - **Tags** — Etiquetás contactos con múltiples tags de colores.
 - **Campos personalizados** — Definí campos extra para tus contactos (texto, número, fecha, select).
 - **Notas internas** — Anotaciones privadas del equipo, visibles solo dentro del CRM.
@@ -31,7 +31,6 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 - **Notificaciones push** — Notificaciones en el navegador y Web Push cuando llegan mensajes o vencen recordatorios.
 - **Búsqueda global** — Buscá en contactos, mensajes y conversaciones desde un solo lugar.
 - **Filtros guardados** — Guardá combinaciones de filtros de contactos para reutilizarlas.
-- **Papelera** — Los contactos eliminados van a la papelera; podés restaurarlos o borrarlos definitivamente.
 - **Log de webhooks** — Revisá todos los eventos que llegaron desde WAHA en tiempo real.
 - **Webhooks de salida** — Enviá eventos del CRM a URLs externas (Zapier, Make, tu propio backend).
 - **API keys** — Generá claves de API para integrar el CRM con herramientas externas.
@@ -253,7 +252,6 @@ rinran-crm/
 │   │       ├── scripts.js         Scripts de venta y Objection Handler (CRUD + seed)
 │   │       ├── users.js           Gestión de equipo (admin)
 │   │       ├── savedFilters.js    Filtros guardados por usuario
-│   │       ├── trash.js           Papelera de contactos eliminados
 │   │       ├── webhookLog.js      Log de eventos WAHA entrantes
 │   │       ├── sse.js             Server-Sent Events (push en tiempo real)
 │   │       ├── push.js            Web Push notifications
@@ -293,7 +291,6 @@ rinran-crm/
 │   │       ├── GlobalSearch.jsx   Búsqueda global
 │   │       ├── Reminders.jsx      Lista de recordatorios pendientes
 │   │       ├── Scripts.jsx        Scripts de venta + Objection Handler + HAZ/NO HAGAS
-│   │       ├── Trash.jsx          Papelera de contactos
 │   │       ├── WebhookLog.jsx     Log de eventos WAHA
 │   │       └── Settings.jsx       Configuración general (admin)
 │   ├── Dockerfile
@@ -373,7 +370,7 @@ Authorization: Bearer <jwt-token>
 | `GET` | `/contacts/:id` | Detalle + historial de mensajes + notas + campos custom |
 | `POST` | `/contacts` | Crear. Body: `name`, `phone`, `category_id?`, `notes?`, `pipeline_stage?` |
 | `PATCH` | `/contacts/:id` | Actualizar nombre, categoría, notas, estado, pipeline, asignado |
-| `DELETE` | `/contacts/:id` | Mover a papelera (soft delete) |
+| `DELETE` | `/contacts/:id` | Eliminar contacto (permanente) |
 | `GET` | `/contacts/:id/photo` | Proxy de foto de perfil |
 | `POST` | `/contacts/:id/photo` | Subir foto de perfil (base64, max 5MB) |
 
@@ -517,9 +514,6 @@ Authorization: Bearer <jwt-token>
 |--------|----------|-------------|
 | `GET` | `/api/sse?token=<jwt>` | Stream SSE para eventos en tiempo real |
 | `POST` | `/api/sync` | Importar chats/contactos existentes desde WAHA |
-| `GET` | `/api/trash` | Contactos en la papelera |
-| `POST` | `/api/trash/:id/restore` | Restaurar contacto |
-| `DELETE` | `/api/trash/:id` | Eliminar definitivamente |
 | `GET` | `/saved-filters` | Filtros guardados del usuario |
 | `POST` | `/saved-filters` | Guardar filtro. Body: `name`, `filters_json` |
 | `DELETE` | `/saved-filters/:id` | Eliminar filtro |

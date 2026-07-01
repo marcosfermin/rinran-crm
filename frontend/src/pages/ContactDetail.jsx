@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag, Bell, Mic, MicOff, MapPin, Phone } from 'lucide-react';
+import { ArrowLeft, Send, Edit2, Check, X, ChevronDown, Camera, Paperclip, File, Music, Download, Zap, Search, UserCheck, GitBranch, CheckCircle, Clock, MessageSquare, Activity, CornerUpLeft, StickyNote, Plus, Trash2, Tag, Bell, Mic, MicOff, MapPin, Phone, Play, Pause } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 import { Avatar, PhotoLightbox } from '../components/Avatar.jsx';
 
@@ -17,7 +17,63 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function MediaContent({ msg, onDownload }) {
+function AudioPlayer({ src, isOutbound }) {
+  const audioRef = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+
+  function fmt(s) {
+    if (!isFinite(s) || isNaN(s)) return '0:00';
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  }
+
+  function toggle() {
+    if (!audioRef.current) return;
+    if (playing) { audioRef.current.pause(); }
+    else { audioRef.current.play().catch(() => {}); }
+  }
+
+  function seek(e) {
+    if (!audioRef.current || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    audioRef.current.currentTime = pct * duration;
+  }
+
+  const pct = duration > 0 ? (current / duration) * 100 : 0;
+  const base = isOutbound ? 'bg-green-700/40' : 'bg-gray-700/50';
+  const bar  = isOutbound ? 'bg-white/80' : 'bg-green-400';
+  const track= isOutbound ? 'bg-white/20' : 'bg-gray-600';
+
+  return (
+    <div className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 min-w-[200px] max-w-[280px] mb-1 ${base}`}>
+      <audio ref={audioRef} src={src} preload="metadata"
+        onLoadedMetadata={e => { setDuration(e.target.duration); setLoaded(true); }}
+        onTimeUpdate={e => setCurrent(e.target.currentTime)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setCurrent(0); if (audioRef.current) audioRef.current.currentTime = 0; }}
+      />
+      <button onClick={toggle}
+        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${isOutbound ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-green-500/20 hover:bg-green-500/30 text-green-400'}`}>
+        {playing ? <Pause size={13} /> : <Play size={13} />}
+      </button>
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className={`h-1.5 rounded-full cursor-pointer ${track}`} onClick={seek}>
+          <div className={`h-full rounded-full transition-all ${bar}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className={`text-[10px] ${isOutbound ? 'text-white/60' : 'text-gray-500'}`}>
+          {loaded ? fmt(playing ? current : duration) : '…'}
+        </p>
+      </div>
+      <Mic size={12} className={isOutbound ? 'text-white/40 shrink-0' : 'text-gray-600 shrink-0'} />
+    </div>
+  );
+}
+
+function MediaContent({ msg, onDownload, isOutbound }) {
   const url = msg.media_url;
   const type = msg.media_type || '';
   const filename = msg.media_filename || 'archivo';
@@ -27,14 +83,15 @@ function MediaContent({ msg, onDownload }) {
 
   if (isPlaceholder && msg.wa_message_id) {
     const emojis = { '[Foto]': '🖼️', '[Video]': '🎬', '[Audio]': '🎵', '[Archivo]': '📎', '[Sticker]': '🎨' };
+    const isAudioPlaceholder = msg.content === '[Audio]';
     return (
-      <div className="flex items-center gap-2 mb-1 bg-white/10 rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 mb-1 bg-white/10 rounded-lg px-3 py-2 min-w-[180px]">
         <span>{emojis[msg.content] || '📎'}</span>
-        <span className="text-xs flex-1 text-gray-300">{msg.content.replace(/[\[\]]/g, '')}</span>
+        <span className="text-xs flex-1 text-gray-300">{isAudioPlaceholder ? 'Nota de voz' : msg.content.replace(/[\[\]]/g, '')}</span>
         <button onClick={async () => { if (downloading) return; setDownloading(true); await onDownload(msg.id); setDownloading(false); }}
           className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
-          {downloading ? <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" /> : <Download size={12} />}
-          Ver
+          {downloading ? <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin" /> : <Play size={12} />}
+          {isAudioPlaceholder ? 'Cargar' : 'Ver'}
         </button>
       </div>
     );
@@ -42,7 +99,7 @@ function MediaContent({ msg, onDownload }) {
   if (!url) return null;
   if (type.startsWith('image/')) return <a href={url} target="_blank" rel="noreferrer" className="block mb-1"><img src={url} alt={filename} className="rounded-lg max-w-full max-h-60 object-cover" /></a>;
   if (type.startsWith('video/')) return <video controls src={url} className="rounded-lg max-w-full mb-1" style={{ maxHeight: 240 }} />;
-  if (type.startsWith('audio/')) return <audio controls src={url} className="w-full mb-1" />;
+  if (type.startsWith('audio/')) return <AudioPlayer src={url} isOutbound={isOutbound} />;
   return (
     <a href={url} download={filename} className="flex items-center gap-2 mb-1 bg-white/10 rounded-lg px-3 py-2 hover:bg-white/20 transition-colors">
       <File size={18} className="shrink-0" /><span className="text-sm truncate flex-1">{filename}</span><Download size={14} className="shrink-0 opacity-70" />
@@ -56,7 +113,7 @@ function MessageBubble({ msg, onDownload, onReply }) {
   const isOut = msg.direction === 'outbound';
   const time = new Date(msg.sent_at.replace(' ', 'T') + 'Z').toLocaleString('es', { hour: '2-digit', minute: '2-digit' });
   const isPlaceholder = MEDIA_PLACEHOLDERS.includes(msg.content) && !msg.media_url;
-  const showText = msg.content && msg.content !== msg.media_filename && !isPlaceholder;
+  const showText = msg.content && msg.content !== msg.media_filename && !MEDIA_PLACEHOLDERS.includes(msg.content);
   return (
     <div className={`flex group ${isOut ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm shadow-sm ${
@@ -67,7 +124,7 @@ function MessageBubble({ msg, onDownload, onReply }) {
             <p className="truncate">{msg.reply_to_content}</p>
           </div>
         )}
-        {(msg.media_url || isPlaceholder) && <MediaContent msg={msg} onDownload={onDownload} />}
+        {(msg.media_url || isPlaceholder) && <MediaContent msg={msg} onDownload={onDownload} isOutbound={isOut} />}
         {showText && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
         <div className="flex items-center justify-between gap-2 mt-1">
           <button onClick={() => onReply(msg)}
@@ -226,6 +283,7 @@ export default function ContactDetail() {
     stopTyping();
     setSending(true);
     if (attachment?.isVoice) {
+      if (attachment.blobUrl) URL.revokeObjectURL(attachment.blobUrl);
       await apiFetch('/api/messages/send-voice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contact_id: parseInt(id), data: attachment.data, mimetype: attachment.type }) });
       setAttachment(null);
@@ -345,10 +403,11 @@ export default function ContactDetail() {
           clearInterval(recordingTimerRef.current);
           setRecording(false); setRecordingSecs(0);
           const blob = new Blob(audioChunksRef.current, { type: mime });
+          const blobUrl = URL.createObjectURL(blob);
           const reader = new FileReader();
           reader.onload = ev => {
             const b64 = ev.target.result.split(',')[1];
-            setAttachment({ name: `nota_voz_${Date.now()}.ogg`, type: mime, size: blob.size, data: b64, isVoice: true });
+            setAttachment({ name: `nota_voz_${Date.now()}.ogg`, type: mime, size: blob.size, data: b64, isVoice: true, blobUrl });
           };
           reader.readAsDataURL(blob);
         };
@@ -821,15 +880,19 @@ export default function ContactDetail() {
         {attachment && (
           <div className="px-3 pt-2.5 flex items-center gap-2">
             {attachment.isVoice
-              ? <div className="w-10 h-10 rounded-full bg-green-500/10 border border-green-700 flex items-center justify-center shrink-0"><Mic size={14} className="text-green-400" /></div>
-              : attachment.preview
-                ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
-                : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">{attachment.type?.startsWith('audio/') ? <Music size={14} /> : <File size={14} />}</div>}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-white truncate">{attachment.isVoice ? 'Nota de voz' : attachment.name}</p>
-              <p className="text-xs text-gray-500">{formatSize(attachment.size)}</p>
-            </div>
-            <button onClick={() => setAttachment(null)} className="p-1 text-gray-500 hover:text-white"><X size={15} /></button>
+              ? <div className="flex-1 flex items-center gap-2 min-w-0">
+                  <AudioPlayer src={attachment.blobUrl} isOutbound={true} />
+                </div>
+              : <>
+                  {attachment.preview
+                    ? <img src={attachment.preview} className="w-10 h-10 rounded object-cover shrink-0" />
+                    : <div className="w-10 h-10 rounded bg-gray-700 flex items-center justify-center shrink-0">{attachment.type?.startsWith('audio/') ? <Music size={14} /> : <File size={14} />}</div>}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{attachment.name}</p>
+                    <p className="text-xs text-gray-500">{formatSize(attachment.size)}</p>
+                  </div>
+                </>}
+            <button onClick={() => { if (attachment.blobUrl) URL.revokeObjectURL(attachment.blobUrl); setAttachment(null); }} className="p-1 text-gray-500 hover:text-white"><X size={15} /></button>
           </div>
         )}
         {/* Recording indicator */}

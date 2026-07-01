@@ -15,16 +15,17 @@ Está diseñado para usarse desde el teléfono — podés instalarlo en la panta
 - **Captura automática** — Cuando alguien te escribe, el contacto se crea solo con su nombre y teléfono. No hay que hacer nada manual.
 - **Captura de grupos** — Los mensajes de grupos también se capturan, usando al remitente como contacto.
 - **Bandera de país** — Detecta el país por código de área (`+52` → 🇲🇽, `+54` → 🇦🇷, `+55` → 🇧🇷, etc.).
-- **Chat individual** — Vista de conversación por contacto, con historial completo. Soporte para responder mensajes específicos (cita), enviar archivos, notas de voz y ubicaciones.
+- **Chat individual** — Vista de conversación por contacto, con historial completo. Soporte para responder mensajes específicos (cita), enviar archivos, ubicaciones y notas de voz (grabación directa con conversor OGG/Opus para compatibilidad total con WhatsApp).
 - **Broadcast masivo** — Enviá un mensaje a toda una categoría, tag o etapa del pipeline. Soporte para programar broadcasts.
+- **Scripts & Objection Handler** — Biblioteca editable de scripts de venta palabra a palabra, 10 manejadores de objeciones tipo acordeón, y checklists HAZ/NO HAGAS. Cada script tiene botón de copiar para pegar directo en el chat.
 - **Plantillas** — Guardá mensajes predefinidos para reutilizarlos desde cualquier chat.
 - **Respuestas automáticas** — Configurá reglas para responder automáticamente según palabras clave o el primer mensaje.
 - **Pipeline** — Vista Kanban de contactos por etapa de venta (Nuevo, En progreso, Ganado, etc.).
-- **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos.
+- **Categorías con colores** — Clasificá contactos en Lead, Cliente, VIP, Inactivo, o las que crees vos. Sincronización bidireccional con labels de WhatsApp: importa labels de WA al CRM o aplica categorías del CRM como labels en WhatsApp.
 - **Tags** — Etiquetás contactos con múltiples tags de colores.
 - **Campos personalizados** — Definí campos extra para tus contactos (texto, número, fecha, select).
 - **Notas internas** — Anotaciones privadas del equipo, visibles solo dentro del CRM.
-- **Recordatorios** — Programá un seguimiento para un contacto; el CRM te notifica cuando vence.
+- **Recordatorios** — Programá un seguimiento para un contacto. El CRM te notifica cuando vence y puede enviar automáticamente un mensaje de WhatsApp al contacto con variables `{{nombre}}` y `{{titulo}}`.
 - **Multi-usuario** — Creá cuentas para todo tu equipo con roles admin/agente. Asignación automática por reglas.
 - **Autenticación** — Login con email/contraseña, roles, y 2FA (TOTP) opcional.
 - **Notificaciones push** — Notificaciones en el navegador y Web Push cuando llegan mensajes o vencen recordatorios.
@@ -249,6 +250,7 @@ rinran-crm/
 │   │       ├── tags.js            CRUD de tags
 │   │       ├── internalNotes.js   Notas internas por contacto
 │   │       ├── reminders.js       Recordatorios de seguimiento
+│   │       ├── scripts.js         Scripts de venta y Objection Handler (CRUD + seed)
 │   │       ├── users.js           Gestión de equipo (admin)
 │   │       ├── savedFilters.js    Filtros guardados por usuario
 │   │       ├── trash.js           Papelera de contactos eliminados
@@ -290,6 +292,7 @@ rinran-crm/
 │   │       ├── Team.jsx           Gestión de usuarios del equipo
 │   │       ├── GlobalSearch.jsx   Búsqueda global
 │   │       ├── Reminders.jsx      Lista de recordatorios pendientes
+│   │       ├── Scripts.jsx        Scripts de venta + Objection Handler + HAZ/NO HAGAS
 │   │       ├── Trash.jsx          Papelera de contactos
 │   │       ├── WebhookLog.jsx     Log de eventos WAHA
 │   │       └── Settings.jsx       Configuración general (admin)

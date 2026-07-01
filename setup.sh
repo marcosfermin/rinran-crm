@@ -142,11 +142,14 @@ echo ""
 info "Esperando que los servicios estén listos…"
 
 # ── Health check ───────────────────────────────────────────────
-TIMEOUT=60
+TIMEOUT=90
 ELAPSED=0
-until docker compose exec -T backend node -e "require('http').get('http://localhost:4000/health',r=>{process.exit(r.statusCode===200?0:1)})" &>/dev/null; do
+printf "  Esperando backend"
+until docker compose exec -T backend wget -qO- http://localhost:4000/health &>/dev/null; do
   if [ $ELAPSED -ge $TIMEOUT ]; then
-    err "El backend no respondió en ${TIMEOUT}s. Revisa: docker compose logs backend"
+    echo ""
+    err "El backend no respondió en ${TIMEOUT}s."
+    echo "   Revisa los logs con: docker compose logs backend"
     exit 1
   fi
   sleep 2; ELAPSED=$((ELAPSED+2)); printf "."
@@ -154,13 +157,18 @@ done
 echo ""
 ok "Backend listo"
 
+printf "  Esperando frontend"
+ELAPSED2=0
 until docker compose exec -T frontend wget -qO- http://localhost/index.html &>/dev/null; do
-  if [ $ELAPSED -ge $((TIMEOUT+20)) ]; then
-    err "El frontend no respondió. Revisa: docker compose logs frontend"
+  if [ $ELAPSED2 -ge 30 ]; then
+    echo ""
+    err "El frontend no respondió."
+    echo "   Revisa los logs con: docker compose logs frontend"
     exit 1
   fi
-  sleep 2; ELAPSED=$((ELAPSED+2)); printf "."
+  sleep 2; ELAPSED2=$((ELAPSED2+2)); printf "."
 done
+echo ""
 ok "Frontend listo"
 
 # ── Read final config ──────────────────────────────────────────

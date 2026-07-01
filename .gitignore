@@ -4,14 +4,7 @@ node_modules/
 frontend/node_modules/
 backend/node_modules/
 frontend/dist/
+frontend/package-lock.json
+backend/package-lock.json
 *.db
-
-# Archivos basura creados por comandos pegados accidentalmente
-=
-[backend
-[frontend
-[internal]
-reading
-resolve
-transferring
-transfgit
+probe.js

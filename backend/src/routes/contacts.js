@@ -10,6 +10,14 @@ function logActivity(db, contactId, userId, action, detail) {
   } catch {}
 }
 
+// Authorization: agents may only act on contacts assigned to them; admins act on all.
+// `contactRow` must include `assigned_to`. Read/list paths already scope agents this way,
+// but the by-id and bulk mutation/delete paths did not — allowing any agent to modify or
+// permanently delete contacts (and cascade-wipe messages/notes/reminders/etc.) they don't own.
+function canActOn(req, contactRow) {
+  return req.user.role !== 'agent' || contactRow.assigned_to === req.user.id;
+}
+
 // GET /contacts
 router.get('/', (req, res) => {
   const db = getDb();
@@ -132,6 +140,7 @@ router.post('/merge', (req, res) => {
   const keep = db.prepare('SELECT * FROM contacts WHERE id = ?').get(keep_id);
   const merge = db.prepare('SELECT * FROM contacts WHERE id = ?').get(merge_id);
   if (!keep || !merge) return res.status(404).json({ error: 'Contact not found' });
+  if (!canActOn(req, keep) || !canActOn(req, merge)) return res.status(403).json({ error: 'No autorizado' });
 
   db.prepare('UPDATE messages SET contact_id = ? WHERE contact_id = ?').run(keep_id, merge_id);
   db.prepare('UPDATE activity_log SET contact_id = ? WHERE contact_id = ?').run(keep_id, merge_id);
@@ -147,34 +156,39 @@ router.post('/merge', (req, res) => {
 router.post('/bulk', (req, res) => {
   const db = getDb();
   const { ids, action, value } = req.body;
-  if (!ids?.length || !action) return res.status(400).json({ error: 'ids[] and action required' });
+  if (!Array.isArray(ids) || !ids.length || !action) return res.status(400).json({ error: 'ids[] and action required' });
 
   const placeholders = ids.map(() => '?').join(',');
   const ts = `datetime('now')`;
+  // Agents may only affect contacts assigned to them; admins affect all.
+  const ownClause = req.user.role === 'agent' ? ' AND assigned_to = ?' : '';
+  const ownArg = req.user.role === 'agent' ? [req.user.id] : [];
 
+  let info;
   if (action === 'assign_category') {
-    db.prepare(`UPDATE contacts SET category_id = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value || null, ...ids);
+    info = db.prepare(`UPDATE contacts SET category_id = ?, updated_at = ${ts} WHERE id IN (${placeholders})${ownClause}`).run(value || null, ...ids, ...ownArg);
   } else if (action === 'assign_agent') {
-    db.prepare(`UPDATE contacts SET assigned_to = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value || null, ...ids);
+    info = db.prepare(`UPDATE contacts SET assigned_to = ?, updated_at = ${ts} WHERE id IN (${placeholders})${ownClause}`).run(value || null, ...ids, ...ownArg);
   } else if (action === 'set_pipeline') {
-    db.prepare(`UPDATE contacts SET pipeline_stage = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
+    info = db.prepare(`UPDATE contacts SET pipeline_stage = ?, updated_at = ${ts} WHERE id IN (${placeholders})${ownClause}`).run(value ?? null, ...ids, ...ownArg);
   } else if (action === 'set_conv_status') {
-    db.prepare(`UPDATE contacts SET conv_status = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
+    info = db.prepare(`UPDATE contacts SET conv_status = ?, updated_at = ${ts} WHERE id IN (${placeholders})${ownClause}`).run(value ?? null, ...ids, ...ownArg);
   } else if (action === 'delete') {
-    db.prepare(`DELETE FROM contacts WHERE id IN (${placeholders})`).run(...ids);
+    info = db.prepare(`DELETE FROM contacts WHERE id IN (${placeholders})${ownClause}`).run(...ids, ...ownArg);
   } else {
     return res.status(400).json({ error: 'Unknown action' });
   }
 
   ids.forEach(cid => logActivity(db, cid, req.user.id, `bulk_${action}`, value));
-  res.json({ ok: true, affected: ids.length });
+  res.json({ ok: true, affected: info.changes });
 });
 
 // GET /contacts/:id/export-chat — download conversation as TXT
 router.get('/:id/export-chat', (req, res) => {
   const db = getDb();
-  const contact = db.prepare('SELECT name, phone FROM contacts WHERE id = ?').get(req.params.id);
+  const contact = db.prepare('SELECT name, phone, assigned_to FROM contacts WHERE id = ?').get(req.params.id);
   if (!contact) return res.status(404).json({ error: 'Not found' });
+  if (!canActOn(req, contact)) return res.status(403).json({ error: 'No autorizado' });
   const messages = db.prepare('SELECT direction, content, sent_at FROM messages WHERE contact_id = ? ORDER BY sent_at ASC').all(req.params.id);
   const lines = [`Conversación con ${contact.name} (${contact.phone})`, `Exportado: ${new Date().toLocaleString('es')}`, '='.repeat(60), ''];
   for (const m of messages) {
@@ -199,6 +213,7 @@ router.get('/:id', (req, res) => {
     WHERE c.id = ?
   `).get(req.params.id);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
+  if (!canActOn(req, contact)) return res.status(403).json({ error: 'No autorizado' });
 
   const messages = db.prepare(
     'SELECT * FROM messages WHERE contact_id = ? ORDER BY sent_at DESC LIMIT 200'
@@ -332,6 +347,7 @@ router.patch('/:id', (req, res) => {
 
   const old = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
   if (!old) return res.status(404).json({ error: 'Not found' });
+  if (!canActOn(req, old)) return res.status(403).json({ error: 'No autorizado' });
 
   if (name !== undefined) { fields.push('name = ?'); params.push(name); }
   if (category_id !== undefined) { fields.push('category_id = ?'); params.push(category_id || null); }
@@ -412,7 +428,11 @@ router.patch('/:id', (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
-  getDb().prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
+  const db = getDb();
+  const contact = db.prepare('SELECT assigned_to FROM contacts WHERE id = ?').get(req.params.id);
+  if (!contact) return res.status(404).json({ error: 'Not found' });
+  if (!canActOn(req, contact)) return res.status(403).json({ error: 'No autorizado' });
+  db.prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

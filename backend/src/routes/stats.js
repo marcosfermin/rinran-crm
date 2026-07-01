@@ -7,19 +7,23 @@ router.get('/', (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 14, 365);
   const from = req.query.from || null;
   const to = req.query.to || null;
-  const dateFilter = from && to
-    ? `AND date(sent_at) >= '${from}' AND date(sent_at) <= '${to}'`
+  const useRange = from && to;
+  // Bind from/to as parameters — never interpolate them into SQL (SQL injection).
+  // `days` is already a sanitized integer, so its interpolation is safe.
+  const dateParams = useRange ? [from, to] : [];
+  const dateFilter = useRange
+    ? `AND date(sent_at) >= ? AND date(sent_at) <= ?`
     : `AND sent_at >= datetime('now', '-${days} days')`;
-  const contactDateFilter = from && to
-    ? `AND date(created_at) >= '${from}' AND date(created_at) <= '${to}'`
+  const contactDateFilter = useRange
+    ? `AND date(created_at) >= ? AND date(created_at) <= ?`
     : `AND created_at >= datetime('now', '-${days} days')`;
 
   const totalContacts = db.prepare("SELECT COUNT(*) as n FROM contacts WHERE status = 'active' AND is_deleted != 1").get().n;
   const newToday = db.prepare("SELECT COUNT(*) as n FROM contacts WHERE date(created_at) = date('now') AND is_deleted != 1").get().n;
-  const newInRange = db.prepare(`SELECT COUNT(*) as n FROM contacts WHERE is_deleted != 1 ${contactDateFilter}`).get().n;
-  const totalMessages = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'outbound' ${dateFilter}`).get().n;
+  const newInRange = db.prepare(`SELECT COUNT(*) as n FROM contacts WHERE is_deleted != 1 ${contactDateFilter}`).get(...dateParams).n;
+  const totalMessages = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'outbound' ${dateFilter}`).get(...dateParams).n;
   const inboundToday = db.prepare("SELECT COUNT(*) as n FROM messages WHERE direction = 'inbound' AND date(sent_at) = date('now')").get().n;
-  const inboundInRange = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'inbound' ${dateFilter}`).get().n;
+  const inboundInRange = db.prepare(`SELECT COUNT(*) as n FROM messages WHERE direction = 'inbound' ${dateFilter}`).get(...dateParams).n;
   const byCountry = db.prepare("SELECT country_flag, country_name, COUNT(*) as n FROM contacts WHERE is_deleted != 1 GROUP BY country_code ORDER BY n DESC LIMIT 10").all();
   const byCategory = db.prepare(`
     SELECT cat.name, cat.color, COUNT(c.id) as n
@@ -34,7 +38,7 @@ router.get('/', (req, res) => {
     FROM messages
     WHERE 1=1 ${dateFilter}
     GROUP BY day ORDER BY day
-  `).all();
+  `).all(...dateParams);
 
   const pipelineFunnel = db.prepare(`
     SELECT c.pipeline_stage, ps.label, ps.color, COUNT(*) as n

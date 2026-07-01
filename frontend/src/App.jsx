@@ -417,6 +417,17 @@ export default function App() {
     data => setActiveReminder(data)
   );
 
+  // Catch-up: show any overdue pending reminders when the CRM loads
+  useEffect(() => {
+    if (!token) return;
+    apiFetch('/api/reminders?done=0').then(r => r?.json()).then(list => {
+      if (!Array.isArray(list)) return;
+      const now = new Date();
+      const overdue = list.filter(r => new Date(r.due_at.replace(' ', 'T') + 'Z') <= now);
+      if (overdue.length > 0) setActiveReminder(overdue[0]);
+    }).catch(() => {});
+  }, [token]);
+
   if (checking) {
     return (
       <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center gap-3">

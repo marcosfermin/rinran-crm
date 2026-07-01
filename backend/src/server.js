@@ -230,9 +230,9 @@ try { getDb().exec("UPDATE auto_reply_rules SET response = '' WHERE response IS 
 setInterval(async () => {
   try {
     const db = getDb();
-    // Only fire for reminders that haven't been notified yet
     const due = db.prepare("SELECT r.*, c.name as contact_name FROM reminders r JOIN contacts c ON r.contact_id = c.id WHERE r.done = 0 AND r.due_at <= datetime('now') AND r.notified_at IS NULL").all();
     for (const r of due) {
+      console.log(`[reminder] Disparando: "${r.title}" → usuario ${r.user_id} (contacto: ${r.contact_name})`);
       db.prepare("UPDATE reminders SET notified_at = datetime('now') WHERE id = ?").run(r.id);
       sseSendToUser(r.user_id, 'reminder', { id: r.id, title: r.title, contact_id: r.contact_id, contact_name: r.contact_name });
       try {
@@ -245,7 +245,9 @@ setInterval(async () => {
         }
       } catch {}
     }
-  } catch {}
+  } catch (e) {
+    console.error('[reminder] Scheduler error:', e.message);
+  }
 }, 30000);
 
 // Broadcast scheduler — check every 60s for scheduled broadcasts ready to fire

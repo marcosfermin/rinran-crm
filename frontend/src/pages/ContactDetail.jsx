@@ -394,7 +394,11 @@ export default function ContactDetail() {
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mime = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/mp4';
+        const mime = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+          ? 'audio/ogg;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/mp4';
         const mr = new MediaRecorder(stream, { mimeType: mime });
         audioChunksRef.current = [];
         mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };

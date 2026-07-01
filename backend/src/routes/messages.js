@@ -117,23 +117,45 @@ router.post('/send-voice', async (req, res) => {
   const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(contact_id);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-  const ext = mimetype.includes('ogg') ? '.ogg' : mimetype.includes('mp4') ? '.m4a' : '.ogg';
-  const filename = `voice_${Date.now()}${ext}`;
-  const buf = Buffer.from(data, 'base64');
   const fs2 = require('fs');
-  fs2.writeFileSync(path.join(uploadsDir, filename), buf);
+  const { execSync } = require('child_process');
+  const ts = Date.now();
+
+  // Save raw audio from browser
+  const rawExt = mimetype.includes('ogg') ? '.ogg' : mimetype.includes('webm') ? '.webm' : mimetype.includes('mp4') ? '.m4a' : '.bin';
+  const rawFile = path.join(uploadsDir, `voice_raw_${ts}${rawExt}`);
+  fs2.writeFileSync(rawFile, Buffer.from(data, 'base64'));
+
+  // Convert to OGG/Opus for WhatsApp compatibility (works on all platforms)
+  const oggFile = path.join(uploadsDir, `voice_${ts}.ogg`);
+  let finalFile = rawFile, finalMime = mimetype, finalExt = rawExt;
+  try {
+    execSync(`ffmpeg -y -i "${rawFile}" -c:a libopus -b:a 32k -ar 16000 -ac 1 "${oggFile}" 2>/dev/null`, { timeout: 20000 });
+    fs2.unlinkSync(rawFile);
+    finalFile = oggFile;
+    finalMime = 'audio/ogg; codecs=opus';
+    finalExt = '.ogg';
+    console.log(`[voice] converted to OGG/Opus: ${path.basename(oggFile)}`);
+  } catch (e) {
+    // ffmpeg unavailable or failed — send raw file
+    console.warn('[voice] ffmpeg conversion failed, sending raw:', e.message);
+    if (fs2.existsSync(oggFile)) fs2.unlinkSync(oggFile);
+  }
+
+  const filename = path.basename(finalFile);
   const localUrl = `/uploads/${filename}`;
   const waUrl = `${BACKEND_INTERNAL}/uploads/${filename}`;
   const chatId = contact.wa_chat_id || toWaId(contact.phone);
 
   let wa_message_id = null, status = 'sent';
   try {
-    const result = await sendVoice(chatId, { url: waUrl, filename, mimetype });
-    wa_message_id = result?.id ?? result?.response?.id?._serialized ?? null;
+    const result = await sendVoice(chatId, { url: waUrl, filename, mimetype: finalMime });
+    wa_message_id = result?.key?.id ?? result?.id ?? result?.response?.id?._serialized ?? null;
+    console.log(`[voice] sent to ${chatId}, wa_id: ${wa_message_id}`);
   } catch (e) { status = 'failed'; console.error('[messages] sendVoice error:', e.response?.data || e.message); }
 
   const row = db.prepare(`INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename) VALUES (?, 'outbound', '[Audio]', ?, ?, ?, ?, ?)`)
-    .run(contact_id, wa_message_id, status, localUrl, mimetype, filename);
+    .run(contact_id, wa_message_id, status, localUrl, finalMime, filename);
   setImmediate(() => fireOutboundWebhooks(db, 'message.outbound', { contact: { id: contact.id, name: contact.name, phone: contact.phone }, message: '[Audio]', media_url: localUrl }));
   res.json({ id: row.lastInsertRowid, status, wa_message_id, media_url: localUrl });
 });

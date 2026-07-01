@@ -293,7 +293,7 @@ async function setChatLabels(chatId, labelIds) {
     await axios.put(
       `${base()}/api/${sessionKey}/labels/chats/${encodeURIComponent(chatId)}`,
       { labels: labelIds.map(id => ({ id: String(id) })) },
-      { headers: headers(), timeout: 10000 }
+      { headers: headers(), timeout: 30000 }
     );
     return true;
   } catch (e) {

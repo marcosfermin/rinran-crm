@@ -112,21 +112,15 @@ router.post('/sync-all', (req, res) => {
   // Respond immediately — sync runs in background to avoid overwhelming WAHA
   res.json({ started: true, total: contacts.length });
 
-  // Background loop with 300ms delay between calls to stay well under WAHA rate limits
+  // Background loop: 1s between calls so WAHA has time to process each label operation
   const delay = ms => new Promise(r => setTimeout(r, ms));
   (async () => {
     let synced = 0, errors = 0;
     for (const c of contacts) {
-      try {
-        const chatId = c.wa_chat_id || toWaId(c.phone);
-        // Skip the GET labels step — just set the CRM label directly (avoids double the API calls)
-        await setChatLabels(chatId, [c.wa_label_id]);
-        synced++;
-      } catch (e) {
-        errors++;
-        console.error(`[categories] sync error contact ${c.id}:`, e.message);
-      }
-      await delay(300);
+      const chatId = c.wa_chat_id || toWaId(c.phone);
+      const ok = await setChatLabels(chatId, [c.wa_label_id]);
+      if (ok) synced++; else errors++;
+      await delay(1000);
     }
     console.log(`[categories] sync-all done: ${synced} synced, ${errors} errors / ${contacts.length} total`);
   })();

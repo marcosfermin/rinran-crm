@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Link2, RefreshCw, Tag, Unlink } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, Link2, RefreshCw, Tag, Unlink, Download } from 'lucide-react';
 import { apiFetch } from '../utils/apiFetch.js';
 
 const COLORS = ['#22c55e','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#6b7280'];
@@ -13,6 +13,7 @@ export default function Categories() {
   const [linkingId, setLinkingId] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   function load() {
     apiFetch('/api/categories').then(r => r?.json()).then(d => d && setCategories(Array.isArray(d) ? d : []));
@@ -50,6 +51,20 @@ export default function Categories() {
     load();
   }
 
+  async function importFromWa() {
+    setImporting(true);
+    setSyncResult(null);
+    const r = await apiFetch('/api/categories/sync-from-wa', { method: 'POST' });
+    const d = await r?.json();
+    setImporting(false);
+    if (d?.ok) {
+      setSyncResult({ message: `✓ ${d.categoriesCreated} categorías creadas, ${d.categoriesLinked} vinculadas, ${d.contactsUpdated} contactos actualizados.` });
+      load(); loadWaLabels();
+    } else {
+      setSyncResult({ message: d?.message || 'Error al importar', errors: 1 });
+    }
+  }
+
   async function syncAll() {
     setSyncing(true);
     setSyncResult(null);
@@ -73,11 +88,16 @@ export default function Categories() {
           <h1 className="text-2xl font-bold text-white">Categorías</h1>
           <p className="text-xs text-gray-500 mt-0.5">{linkedCount} de {categories.length} vinculadas a WhatsApp</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={importFromWa} disabled={importing}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            <Download size={14} className={importing ? 'animate-bounce' : ''} />
+            {importing ? 'Importando…' : 'WhatsApp → CRM'}
+          </button>
           <button onClick={syncAll} disabled={syncing || linkedCount === 0}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
             <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Sincronizando…' : 'Sync → WhatsApp'}
+            {syncing ? 'Sincronizando…' : 'CRM → WhatsApp'}
           </button>
           <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 bg-green-500 hover:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
             <Plus size={16} /> Nueva

@@ -220,8 +220,13 @@ app.post('/api/wa/sessions/:name/webhook', auth, async (req, res) => {
 // Reminder scheduler — emit SSE + Web Push + email when reminders come due
 const { broadcast: sseEmit, sendToUser: sseSendToUser } = require('./routes/sse');
 const { sendReminderEmail } = require('./emailService');
-// Migration for notified_at column
+// Migrations
 try { getDb().exec("ALTER TABLE reminders ADD COLUMN notified_at TEXT"); } catch {}
+try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_url TEXT"); } catch {}
+try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_filename TEXT"); } catch {}
+try { getDb().exec("ALTER TABLE auto_reply_rules ADD COLUMN attachment_mimetype TEXT"); } catch {}
+// Make response optional (allow empty when attachment is set)
+try { getDb().exec("UPDATE auto_reply_rules SET response = '' WHERE response IS NULL"); } catch {}
 setInterval(async () => {
   try {
     const db = getDb();

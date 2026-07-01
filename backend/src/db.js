@@ -164,8 +164,11 @@ function initSchema() {
       name TEXT NOT NULL,
       trigger_type TEXT NOT NULL,
       trigger_value TEXT,
-      response TEXT NOT NULL,
+      response TEXT NOT NULL DEFAULT '',
       is_active INTEGER NOT NULL DEFAULT 1,
+      attachment_url TEXT,
+      attachment_filename TEXT,
+      attachment_mimetype TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 

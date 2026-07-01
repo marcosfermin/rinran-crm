@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { getDb } = require('../db');
 const { parsePhone } = require('../phoneUtils');
-const { fromWaId, sendText, resolveLid, downloadMedia } = require('../whatsapp');
+const { fromWaId, sendText, sendFile, resolveLid, downloadMedia } = require('../whatsapp');
+const BACKEND_INTERNAL = process.env.BACKEND_INTERNAL_URL || 'http://backend:4000';
 const { broadcast: sseEmit } = require('./sse');
 const { fireOutboundWebhooks } = require('../outboundWebhooks');
 
@@ -226,22 +227,50 @@ async function processAutoReply(db, contact, text, isNewContact) {
       if (rule.trigger_type === 'after_hours' && rule.trigger_value) {
         matches = !isWithinHours(rule.trigger_value);
       }
-
       if (!matches) continue;
 
       const response = rule.response
-        .replace(/\{\{nombre\}\}/g, contact.name)
-        .replace(/\{\{telefono\}\}/g, contact.phone);
+        ? rule.response.replace(/\{\{nombre\}\}/g, contact.name).replace(/\{\{telefono\}\}/g, contact.phone)
+        : '';
 
       // Rate-limit: don't auto-reply more than once per 10 minutes per contact
+      const rateKey = response || (rule.attachment_filename || rule.id.toString());
       const recent = db.prepare(`
         SELECT id FROM messages WHERE contact_id = ? AND direction = 'outbound'
           AND content = ? AND sent_at > datetime('now', '-10 minutes')
-      `).get(contact.id, response);
+      `).get(contact.id, rateKey);
       if (recent) continue;
 
-      await sendText(contact.phone, response, contact.wa_chat_id);
-      db.prepare(`INSERT INTO messages (contact_id, direction, content, status) VALUES (?, 'outbound', ?, 'sent')`).run(contact.id, response);
+      const chatId = contact.wa_chat_id || (contact.phone.replace(/^\+/, '') + '@c.us');
+
+      // Send text first (if any)
+      if (response) {
+        await sendText(contact.phone, response, contact.wa_chat_id);
+        db.prepare(`INSERT INTO messages (contact_id, direction, content, status) VALUES (?, 'outbound', ?, 'sent')`).run(contact.id, response);
+      }
+
+      // Send attachment (if any)
+      if (rule.attachment_url && rule.attachment_filename && rule.attachment_mimetype) {
+        const waUrl = `${BACKEND_INTERNAL}${rule.attachment_url}`;
+        const caption = response ? undefined : undefined; // caption already sent as text above
+        const result = await sendFile(chatId, {
+          url: waUrl,
+          filename: rule.attachment_filename,
+          mimetype: rule.attachment_mimetype,
+          caption,
+        });
+        const wa_message_id = result?.id?._serialized || result?.key?.id || null;
+        const content = rule.attachment_filename;
+        db.prepare(
+          `INSERT INTO messages (contact_id, direction, content, wa_message_id, status, media_url, media_type, media_filename) VALUES (?, 'outbound', ?, ?, 'sent', ?, ?, ?)`
+        ).run(contact.id, content, wa_message_id, rule.attachment_url, rule.attachment_mimetype, rule.attachment_filename);
+      }
+
+      // If neither text nor attachment was sent (edge case), insert rate-limit placeholder
+      if (!response && !rule.attachment_url) {
+        db.prepare(`INSERT INTO messages (contact_id, direction, content, status) VALUES (?, 'outbound', ?, 'sent')`).run(contact.id, rateKey);
+      }
+
       break; // Only fire first matching rule
     }
   } catch (e) {

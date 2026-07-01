@@ -72,7 +72,6 @@ app.use('/api/settings',      auth, require('./routes/settings'));
 app.use('/api/tags',          auth, require('./routes/tags'));
 app.use('/api/contacts/:contactId/notes', auth, require('./routes/internalNotes'));
 app.use('/api/reminders',     auth, require('./routes/reminders'));
-app.use('/api/trash',           auth, require('./routes/trash'));
 app.use('/api/scripts',         auth, require('./routes/scripts'));
 app.use('/api/webhook-log',     auth, require('./routes/webhookLog'));
 app.use('/api/pipeline-stages', auth, require('./routes/pipelineStages'));

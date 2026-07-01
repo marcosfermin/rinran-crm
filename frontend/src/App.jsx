@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Trash2, Activity, Sun, Moon, Pencil, X, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Users, Send, Tag, MessageSquare, Inbox, LogOut, GitBranch, Zap, Users2, Wifi, Search, Bot, Settings, Bell, Activity, Sun, Moon, Pencil, X, BookOpen } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext.jsx';
 import { apiFetch } from './utils/apiFetch.js';
 import Login from './pages/Login.jsx';
@@ -18,7 +18,6 @@ import AutoReply from './pages/AutoReply.jsx';
 import GlobalSearch from './pages/GlobalSearch.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import Reminders from './pages/Reminders.jsx';
-import Trash from './pages/Trash.jsx';
 import WebhookLog from './pages/WebhookLog.jsx';
 import Scripts from './pages/Scripts.jsx';
 
@@ -229,7 +228,6 @@ function buildSidebarNav(role) {
     { to: '/',            icon: LayoutDashboard, label: 'Dashboard',  end: true },
     { to: '/search',      icon: Search,          label: 'Buscar',     end: false },
     { to: '/reminders',   icon: Bell,            label: 'Recordatorios', end: false },
-    { to: '/trash',       icon: Trash2,          label: 'Papelera',   end: false },
   ];
   if (role === 'admin') {
     nav.push(
@@ -463,7 +461,6 @@ export default function App() {
           <Route path="/search" element={<GlobalSearch />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/reminders" element={<Reminders />} />
-          <Route path="/trash" element={<Trash />} />
           <Route path="/webhook-log" element={user?.role === 'admin' ? <WebhookLog /> : <Navigate to="/inbox" replace />} />
           <Route path="/scripts" element={<Scripts />} />
         </Routes>

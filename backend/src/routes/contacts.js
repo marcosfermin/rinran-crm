@@ -161,7 +161,7 @@ router.post('/bulk', (req, res) => {
   } else if (action === 'set_conv_status') {
     db.prepare(`UPDATE contacts SET conv_status = ?, updated_at = ${ts} WHERE id IN (${placeholders})`).run(value, ...ids);
   } else if (action === 'delete') {
-    db.prepare(`UPDATE contacts SET is_deleted = 1, updated_at = datetime('now') WHERE id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM contacts WHERE id IN (${placeholders})`).run(...ids);
   } else {
     return res.status(400).json({ error: 'Unknown action' });
   }
@@ -411,9 +411,8 @@ router.patch('/:id', (req, res) => {
   }
 });
 
-// DELETE /contacts/:id — soft delete
 router.delete('/:id', (req, res) => {
-  getDb().prepare("UPDATE contacts SET is_deleted = 1, updated_at = datetime('now') WHERE id = ?").run(req.params.id);
+  getDb().prepare('DELETE FROM contacts WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
